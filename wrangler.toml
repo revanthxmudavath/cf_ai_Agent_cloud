@@ -7,9 +7,9 @@ compatibility_date = "2024-11-22"
 binding = "AI"
 
 # AI Gateway for observability
-[[ai_gateway]]
-binding = "AI_GATEWAY"
-id = "agent-gateway"
+# [[ai_gateway]]
+# binding = "AI_GATEWAY"
+# id = "agent-gateway"
 
 # Durable Objects for agent state
 [[durable_objects.bindings]]
@@ -20,8 +20,8 @@ script_name = "agent-cloud"
 # D1 Database for persistent storage
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-db"
-database_id = "YOUR_D1_DATABASE_ID"  #1
+database_name = "agent_cloud_db"
+database_id = "dd9dba33-fda6-45dc-9348-150b822a4516"
 
 # Vectorize for semantic memory/RAG
 [[vectorize]]
