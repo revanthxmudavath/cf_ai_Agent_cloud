@@ -3,9 +3,9 @@ import { Env, AgentState, Message, Task, TaskWorkflowParams } from '../types/env
 import { VectorizeManager } from './vectorize';
 import { MemoryManager, DEFAULT_SYSTEM_PROMPT, memoryManager } from './memory';
 
-import { CodeExecutor, createCodeExecutor } from '../mcp/CodeExecutor';
 import { ConfirmationHandler, createConfirmationHandler } from '../mcp/ConfirmationHandler';
 import { generateToolDocs } from '../mcp/CodeModeAPI';
+import { getTool } from '../mcp/tools/index';
 import { ToolContext } from '../types/tools';
 
 
@@ -667,15 +667,12 @@ private async generateLLMResponse(
 
     await this.saveMessageToD1(session.userId, userMessage);
 
-    // Store user message embedding and check result
-    const userEmbeddingStored = await this.vectorize.storeMessageEmbedding(
+    // Store user message embedding (silently fails if Vectorize unavailable in local dev)
+    await this.vectorize.storeMessageEmbedding(
       session.userId,
       userMessage,
       'conversation'
     );
-    if (!userEmbeddingStored) {
-      console.warn(`Failed to store user message embedding: ${userMessage.id}`);
-    }
 
     const responseContent = await this.generateLLMResponseWithRAG(
       session.userId,
@@ -683,19 +680,20 @@ private async generateLLMResponse(
       this.state.conversationHistory
     );
 
-    const codeBlocks = this.extractCodeBlocks(responseContent);
+    const toolCalls = this.extractJSONBlocks(responseContent);
 
-    if (codeBlocks.length > 0) {
-      console.log(`[PersonalAssistant] Detected ${codeBlocks.length} code block(s) in response`);
+    if (toolCalls.length > 0) {
+      console.log(`[PersonalAssistant] Detected ${toolCalls.length} tool call(s) in response`);
 
-      for (const code of codeBlocks) {
-        const executionResult = await this.executeCodeWithConfirmation(ws, session, code);
+      for (const toolCall of toolCalls) {
+        const executionResult = await this.executeToolsWithConfirmation(ws, session, toolCall);
 
         ws.send(JSON.stringify({
-          type: 'code_execution_result',
+          type: 'tool_execution_result',
           success: executionResult.success,
           output: executionResult.output,
           error: executionResult.error,
+          toolName: toolCall.tool,
           timestamp: Date.now(),
         }));
       }
@@ -711,15 +709,12 @@ private async generateLLMResponse(
 
     await this.saveMessageToD1(session.userId, assistantMessage);
 
-    // Store assistant message embedding and check result
-    const assistantEmbeddingStored = await this.vectorize.storeMessageEmbedding(
+    // Store assistant message embedding (silently fails if Vectorize unavailable in local dev)
+    await this.vectorize.storeMessageEmbedding(
       session.userId,
       assistantMessage,
       'conversation'
     );
-    if (!assistantEmbeddingStored) {
-      console.warn(`Failed to store assistant message embedding: ${assistantMessage.id}`);
-    }
 
     ws.send(JSON.stringify({
       type: 'chat_response',
@@ -932,73 +927,75 @@ private async generateLLMResponse(
     }
   }
 
-  // Extract code blocks from LLM response
-  private extractCodeBlocks(text: string): string[] {
-    const codeBlockRegex = /```(?:typescript|javascript|ts|js)\n([\s\S]*?)```/g;
-    const matches: string[] = [];
+  // Extract JSON blocks from LLM response (tool calls)
+  private extractJSONBlocks(text: string): Array<{ tool: string; params: any }> {
+    const jsonBlockRegex = /```json\n([\s\S]*?)```/g;
+    const toolCalls: Array<{ tool: string; params: any }> = [];
     let match;
 
-    while ((match = codeBlockRegex.exec(text)) !== null) {
-      matches.push(match[1].trim());
+    while ((match = jsonBlockRegex.exec(text)) !== null) {
+      try {
+        const jsonContent = match[1].trim();
+        const parsed = JSON.parse(jsonContent);
+
+        if (parsed.tool && parsed.params) {
+          toolCalls.push({
+            tool: parsed.tool,
+            params: parsed.params
+          });
+        }
+      } catch (e) {
+        console.warn('[PersonalAssistant] Failed to parse JSON block:', e);
+      }
     }
 
-    return matches;
+    return toolCalls;
   }
 
 /**
-   * Execute LLM-generated code with user confirmation
+   * Execute tool calls with user confirmation
    */
-  private async executeCodeWithConfirmation(
+  private async executeToolsWithConfirmation(
     ws: WebSocket,
     session: WebSocketSession,
-    code: string
+    toolCall: { tool: string; params: any }
   ): Promise<{ success: boolean; output?: any; error?: string }> {
 
     try {
-      console.log('[PersonalAssistant] Preparing code execution');
+      console.log('[PersonalAssistant] Preparing tool execution');
 
- 
       const toolContext: ToolContext = {
         userId: session.userId,
         env: this.env,
-        agent: this, 
+        agent: this,
       };
 
-      
-      const executor = createCodeExecutor(toolContext, 10000); 
+      // Get the tool definition
+      const toolDef = getTool(toolCall.tool);
 
-     
-      const validation = CodeExecutor.validateCode(code);
-      if (!validation.valid) {
-        console.error('[PersonalAssistant] Code validation failed:', validation.errors);
+      // Check if tool exists
+      if (!toolDef) {
+        console.error(`[PersonalAssistant] Tool not found: ${toolCall.tool}`);
         return {
           success: false,
-          error: `Code validation failed: ${validation.errors.join(', ')}`,
+          error: `Tool not found: ${toolCall.tool}`,
         };
       }
 
-      // Pre-execute to extract tool calls (dry run)
-      // We need to know what tools will be called before asking for confirmation
-      console.log('[PersonalAssistant] Extracting tool calls from code');
+      // Create tool call summary for confirmation
+      const toolCallSummary = {
+        toolName: toolCall.tool,
+        parameters: toolCall.params,
+        description: `Calling ${toolCall.tool} with ${JSON.stringify(toolCall.params)}`,
+      };
 
-      // For now, we'll parse the code to extract tool calls
-      // In a more sophisticated version, you could do a dry-run execution
-      const toolCalls = this.extractToolCallsFromCode(code);
+      console.log(`[PersonalAssistant] Requesting confirmation for ${toolCall.tool}`);
 
-      if (toolCalls.length === 0) {
-        console.log('[PersonalAssistant] No tool calls detected, executing directly');
-        
-        const result = await executor.execute({ code, userId: session.userId });
-        return result;
-      }
-
-      console.log(`[PersonalAssistant] Found ${toolCalls.length} tool call(s), requesting confirmation`);
-
-    
+      // Request user confirmation
       const approved = await this.confirmationHandler.requestConfirmation(
         session.userId,
-        code,
-        toolCalls,
+        JSON.stringify({ tool: toolCall.tool, params: toolCall.params }, null, 2), // Formatted JSON for display
+        [toolCallSummary],
         (request) => {
           ws.send(JSON.stringify({
             type: 'confirmation_request',
@@ -1006,25 +1003,39 @@ private async generateLLMResponse(
             timestamp: Date.now(),
           }));
         },
-        60000 
+        60000
       );
 
       if (!approved) {
-        console.log('[PersonalAssistant] Code execution rejected by user');
+        console.log('[PersonalAssistant] Tool execution rejected by user');
         return {
           success: false,
-          error: 'Code execution rejected or timed out',
+          error: 'Tool execution rejected or timed out',
         };
       }
 
-      console.log('[PersonalAssistant] Code execution approved, executing now');
+      console.log('[PersonalAssistant] Tool execution approved, executing now');
 
-   
-      const result = await executor.execute({ code, userId: session.userId });
+      // Validate parameters with Zod schema
+      const validationResult = toolDef.parameters.safeParse(toolCall.params);
+      if (!validationResult.success) {
+        console.error('[PersonalAssistant] Parameter validation failed:', validationResult.error);
+        return {
+          success: false,
+          error: `Invalid parameters: ${validationResult.error.message}`,
+        };
+      }
 
-      console.log('[PersonalAssistant] Code execution completed:', result.success ? 'SUCCESS' : 'FAILED');
+      // Execute the tool
+      const result = await toolDef.execute(validationResult.data, toolContext);
 
-      return result;
+      console.log('[PersonalAssistant] Tool execution completed:', result.success ? 'SUCCESS' : 'FAILED');
+
+      return {
+        success: result.success,
+        output: result.data,
+        error: result.error,
+      };
 
     } catch (error) {
       console.error('[PersonalAssistant] Error in code execution:', error);
@@ -1035,41 +1046,6 @@ private async generateLLMResponse(
     }
   }
 
-  /**
-   * Extract tool calls from code (simple regex-based extraction)
-   * This is a simplified version - in production you might want more sophisticated parsing
-   */
-  private extractToolCallsFromCode(code: string): any[] {
-    const toolCalls: any[] = [];
-
-   
-    const toolCallRegex = /tools\.(\w+)\s*\(\s*({[\s\S]*?})\s*\)/g;
-    let match;
-
-    while ((match = toolCallRegex.exec(code)) !== null) {
-      const toolName = match[1];
-      const paramsStr = match[2];
-
-      try {
-        const parameters = JSON.parse(paramsStr);
-
-        toolCalls.push({
-          toolName,
-          parameters,
-          description: `Calling ${toolName} with parameters`,
-        });
-      } catch (e) {
-       
-        toolCalls.push({
-          toolName,
-          parameters: { raw: paramsStr },
-          description: `Calling ${toolName}`,
-        });
-      }
-    }
-
-    return toolCalls;
-  }
 
   // Load state from Durable Object storage
   private async loadState() {

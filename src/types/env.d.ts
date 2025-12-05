@@ -15,6 +15,17 @@ export interface Env {
     LLM_TEMPERATURE?: string;
     RAG_ENABLED?: string;
     RAG_TOP_K?: string;
+
+
+    OPENWEATHER_API_KEY?: string;
+    POSTMARK_API_KEY?: string;
+    POSTMARK_FROM_EMAIL?: string;
+
+    // Code Mode Configuration
+    CODE_EXECUTION_TIMEOUT?: string;
+    CONFIRMATION_TIMEOUT?: string;
+    MAX_CODE_LENGTH?: string;
+
 }
 
 export interface Message {
@@ -24,6 +35,12 @@ export interface Message {
     timestamp: number;
     metadata?: Record<string, any>;
 }
+
+export interface WSMessage {
+      type: 'chat' | 'task' | 'status' | 'error' | 'confirmation_request' | 'confirmation_response' | 'tool_execution_result';
+      payload: any;
+      timestamp: number;
+  }
 
 export interface Task {
     id: string;
@@ -41,12 +58,6 @@ export interface UserPreferences {
     name?: string;
     timezone?: string;
     preferences?: Record<string, any>;
-}
-
-export interface WSMessage {
-    type: 'chat' | 'task' | 'status' | 'error';
-    payload: any;
-    timestamp: number; 
 }
 
 export interface AgentState {

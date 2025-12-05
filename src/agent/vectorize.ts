@@ -91,6 +91,12 @@ export class VectorizeManager {
         type: 'conversation' | 'knowledge' | 'task' = 'conversation'
     ): Promise<boolean> {
         try {
+        // Check if Vectorize is available (not available in local dev)
+        if (!this.env.VECTORIZE) {
+            // Silently skip in local development
+            return false;
+        }
+
         const embedding =  await this.generateEmbedding(message.content);
 
         const appMetadata: VectorMetadata = {
@@ -112,7 +118,10 @@ export class VectorizeManager {
         console.log("Stored embedding for message:", message.id);
         return true;
     } catch (error) {
-        console.error('Error storing message embedding:', error);
+        // Only log error if it's not the expected local dev limitation
+        if (this.env.VECTORIZE) {
+            console.error('Error storing message embedding:', error);
+        }
         return false;
     }
     }
@@ -127,6 +136,12 @@ export class VectorizeManager {
         additionalMetadata?: Record<string, string | number>
     ): Promise<void> {
         try {
+            // Check if Vectorize is available (not available in local dev)
+            if (!this.env.VECTORIZE) {
+                // Silently skip in local development
+                return;
+            }
+
             const embedding = await this.generateEmbedding(content);
 
             const appMetadata: VectorMetadata = {
@@ -148,9 +163,12 @@ export class VectorizeManager {
                     metadata: vectorizeMetadata,
                 },
             ]);
-            console.log("Stored knowledge embedding:", id); 
+            console.log("Stored knowledge embedding:", id);
         } catch (error) {
-            console.error('Error storing knowledge embedding:', error);
+            // Only log error if it's not the expected local dev limitation
+            if (this.env.VECTORIZE) {
+                console.error('Error storing knowledge embedding:', error);
+            }
         }
     }
 
@@ -165,6 +183,12 @@ export class VectorizeManager {
     ): Promise<SearchResult[]> {
 
         try{
+            // Check if Vectorize is available (not available in local dev)
+            if (!this.env.VECTORIZE) {
+                // Silently return empty results in local development
+                return [];
+            }
+
             const queryEmbedding = await this.generateEmbedding(query);
 
             const vectorFilter: Record<string, string> = { userId };
@@ -182,10 +206,13 @@ export class VectorizeManager {
             return results.matches.map(match => ({
                 id: match.id,
                 score: match.score,
-                metadata: this.fromVectorizeMetadata(match.metadata || {}), 
+                metadata: this.fromVectorizeMetadata(match.metadata || {}),
             }));
         } catch (error) {
-            console.error('Error searching relevant context:', error);
+            // Only log error if it's not the expected local dev limitation
+            if (this.env.VECTORIZE) {
+                console.error('Error searching relevant context:', error);
+            }
             return [];
         }
     }

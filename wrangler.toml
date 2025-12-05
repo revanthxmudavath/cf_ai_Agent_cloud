@@ -1,4 +1,4 @@
-name = "agent-cloud"
+name = "agent-db"
 main = "src/index.ts"
 compatibility_date = "2024-11-22"
 
@@ -15,7 +15,7 @@ binding = "AI"
 [[durable_objects.bindings]]
 name = "AGENT"
 class_name = "PersonalAssistant"
-script_name = "agent-cloud"
+script_name = "agent-db"
 
 # D1 Database for persistent storage
 [[d1_databases]]
@@ -48,3 +48,13 @@ LLM_MAX_TOKENS = "500"
 LLM_TEMPERATURE = "0.7"
 RAG_ENABLED = "true"
 RAG_TOP_K = "3"
+
+# MCP Tool API Keys (actual values stored in .dev.vars)
+OPENWEATHER_API_KEY = "your-openweather-api-key-here"
+POSTMARK_API_KEY = "your-postmark-api-key-here"
+POSTMARK_FROM_EMAIL = "noreply@yourdomain.com"
+
+# Code Mode Configuration (Optional - defaults set in code)
+CODE_EXECUTION_TIMEOUT = "10000"
+CONFIRMATION_TIMEOUT = "60000"
+MAX_CODE_LENGTH = "5000"
