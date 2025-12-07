@@ -93,11 +93,13 @@ export class VectorizeManager {
         try {
         // Check if Vectorize is available (not available in local dev)
         if (!this.env.VECTORIZE) {
-            // Silently skip in local development
+            console.log('[Vectorize] VECTORIZE binding not available - skipping embedding storage');
             return false;
         }
 
+        console.log(`[Vectorize] Generating embedding for message: ${message.id.substring(0, 8)}...`);
         const embedding =  await this.generateEmbedding(message.content);
+        
 
         const appMetadata: VectorMetadata = {
             userId,
@@ -108,6 +110,7 @@ export class VectorizeManager {
         };
 
         const vectorizeMetadata = this.toVectorizeMetadata(appMetadata);
+        console.log(`[Vectorize] Upserting to Vectorize index for user: ${userId}`);
         await this.env.VECTORIZE.upsert([
           {
             id: message.id,
@@ -115,12 +118,14 @@ export class VectorizeManager {
             metadata: vectorizeMetadata,
           },
         ]);
-        console.log("Stored embedding for message:", message.id);
+        console.log(`[Vectorize] ✅ Stored embedding for message: ${message.id.substring(0, 8)}...`);
         return true;
     } catch (error) {
-        // Only log error if it's not the expected local dev limitation
-        if (this.env.VECTORIZE) {
-            console.error('Error storing message embedding:', error);
+        // Log all errors to debug Vectorize issues
+        console.error('[Vectorize] ❌ Error storing message embedding:', error);
+        if (error instanceof Error) {
+            console.error('[Vectorize] Error details:', error.message);
+            console.error('[Vectorize] Stack:', error.stack);
         }
         return false;
     }
@@ -185,16 +190,19 @@ export class VectorizeManager {
         try{
             // Check if Vectorize is available (not available in local dev)
             if (!this.env.VECTORIZE) {
-                // Silently return empty results in local development
+                console.log('[Vectorize] VECTORIZE binding not available - returning empty results');
                 return [];
             }
 
+            console.log(`[Vectorize] Searching for query: "${query.substring(0, 50)}..." (userId: ${userId})`);
             const queryEmbedding = await this.generateEmbedding(query);
+            console.log(`[Vectorize] Query embedding generated, length: ${queryEmbedding.length}`);
 
             const vectorFilter: Record<string, string> = { userId };
             if (filter?.type) {
                 vectorFilter.type = filter.type;
             }
+            console.log(`[Vectorize] Filter:`, vectorFilter);
 
             const results = await this.env.VECTORIZE.query(queryEmbedding, {
                 topK,
@@ -203,15 +211,23 @@ export class VectorizeManager {
                 returnMetadata: true,
             });
 
+            console.log(`[Vectorize] Query returned ${results.matches.length} matches (requested top ${topK})`);
+            if (results.matches.length > 0) {
+                results.matches.forEach((match, i) => {
+                    console.log(`[Vectorize]   Match ${i+1}: score=${match.score.toFixed(4)}, id=${match.id.substring(0, 8)}...`);
+                });
+            }
+
             return results.matches.map(match => ({
                 id: match.id,
                 score: match.score,
                 metadata: this.fromVectorizeMetadata(match.metadata || {}),
             }));
         } catch (error) {
-            // Only log error if it's not the expected local dev limitation
-            if (this.env.VECTORIZE) {
-                console.error('Error searching relevant context:', error);
+            // Log all errors to debug Vectorize issues
+            console.error('[Vectorize] ❌ Error searching relevant context:', error);
+            if (error instanceof Error) {
+                console.error('[Vectorize] Error details:', error.message);
             }
             return [];
         }

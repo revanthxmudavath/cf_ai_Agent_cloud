@@ -24,18 +24,57 @@ const WebSocket = require('../node_modules/.pnpm/ws@7.5.10_bufferutil@4.0.9_utf-
 
     if (message.type === 'connected') {
       console.log(`✅ Connected as user: ${message.userId}`);
-    } else if (message.type === 'chat_response') {
+    }
+
+    // Handle confirmation requests from Phase 4 tool calling
+    else if (message.type === 'confirmation_request') {
+      console.log('⚠️  LLM tried to call a tool - auto-rejecting to continue RAG test');
+      const payload = message.payload;
+
+      // Log what tool was attempted
+      if (payload.toolCalls && payload.toolCalls.length > 0) {
+        payload.toolCalls.forEach(call => {
+          console.log(`   Tool attempted: ${call.toolName}`);
+        });
+      }
+
+      // Auto-reject the tool call (we only want to test RAG recall, not tools)
+      ws.send(JSON.stringify({
+        type: 'confirmation_response',
+        payload: {
+          requestId: payload.requestId,
+          approved: false,
+          timestamp: Date.now()
+        },
+        timestamp: Date.now()
+      }));
+
+      console.log('   ✗ Tool rejected - continuing with RAG test\n');
+    }
+
+    // Handle tool execution results (in case any slip through)
+    else if (message.type === 'tool_execution_result') {
+      console.log(`⚠️  Tool executed: ${message.toolName} - ${message.success ? 'SUCCESS' : 'FAILED'}`);
+      // Don't advance step - wait for chat_response
+    }
+
+    // Handle chat responses
+    else if (message.type === 'chat_response') {
       console.log(`🤖 Response: ${message.content}\n`);
 
-      // Check for RAG recall
+      // Check for RAG recall (step counter is off by 1 because it increments before sending)
       const content = message.content.toLowerCase();
-      if (step >= 4) {
-        if ((step === 4 && content.includes('hik')) ||
-            (step === 5 && content.includes('engineer')) ||
-            (step === 6 && content.includes('blue'))) {
+      if (step >= 5) {
+        // Step 5 = hobbies question (check for hiking)
+        // Step 6 = profession question (check for engineer)
+        // Step 7 = color question (check for blue)
+        if ((step === 5 && content.includes('hik')) ||
+            (step === 6 && content.includes('engineer')) ||
+            (step === 7 && content.includes('blue'))) {
           console.log('✅ PASS: RAG successfully recalled previous information');
         } else {
           console.log('⚠️  WARNING: RAG may not have recalled information');
+          console.log(`   (Step ${step}, looking for: ${step === 5 ? 'hiking' : step === 6 ? 'engineer' : 'blue'})`);
         }
       }
 
