@@ -83,13 +83,31 @@ import { useTasks } from './hooks/useTasks';
               break;
 
           case 'tool_execution_result':
-              // Add tool result as system message
+              // Add tool result as system message with actual data
+              console.log('[App] Tool execution result:', JSON.stringify(wsMessage.payload, null, 2));
+              let resultContent = '';
+
+              if (wsMessage.payload.success) {
+                  // Show actual tool output data for different tools
+                  if (wsMessage.payload.toolName === 'getWeather' && wsMessage.payload.output?.city) {
+                      const weather = wsMessage.payload.output;
+                      resultContent = `🌤️ Weather in ${weather.city}, ${weather.country}:\n` +
+                          `Temperature: ${weather.temperature}°C (feels like ${weather.feelsLike}°C)\n` +
+                          `Conditions: ${weather.description}\n` +
+                          `Humidity: ${weather.humidity}% | Wind: ${weather.windSpeed} m/s`;
+                  } else if (wsMessage.payload.output?.message) {
+                      resultContent = `✅ ${wsMessage.payload.output.message}`;
+                  } else {
+                      resultContent = `✅ Tool "${wsMessage.payload.toolName}" executed successfully`;
+                  }
+              } else {
+                  resultContent = `❌ Tool "${wsMessage.payload.toolName}" failed: ${wsMessage.payload.error}`;
+              }
+
               const resultMessage: Message = {
                   id: crypto.randomUUID(),
                   role: 'system',
-                  content: wsMessage.payload.success
-                  ? `✅ Tool "${wsMessage.payload.toolName}" executed successfully`
-                  : `❌ Tool "${wsMessage.payload.toolName}" failed: ${wsMessage.payload.error}`,
+                  content: resultContent,
                   timestamp: wsMessage.timestamp,
               };
               addMessage(resultMessage);
