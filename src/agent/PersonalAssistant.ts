@@ -441,19 +441,21 @@ export class PersonalAssistant extends DurableObject<Env> {
 
   // Mark task as completed
   private async completeTask(userId: string, taskId: string): Promise<Task> {
-   
+
     const existing = await this.getTask(userId, taskId);
     if (!existing) {
       throw new Error('Task not found');
     }
 
-    const completedAt = Math.floor(Date.now() / 1000);
+    // TOGGLE completion status (was always setting to 1)
+    const newCompleted = existing.completed ? 0 : 1;
+    const completedAt = newCompleted === 1 ? Math.floor(Date.now() / 1000) : null;
 
     await this.env.DB.prepare(
       'UPDATE tasks SET completed = ?, completed_at = ? WHERE id = ? AND user_id = ?'
-    ).bind(1, completedAt, taskId, userId).run();
+    ).bind(newCompleted, completedAt, taskId, userId).run();
 
-    
+
     const updated = await this.getTask(userId, taskId);
     if (!updated) {
       throw new Error('Failed to fetch completed task');
