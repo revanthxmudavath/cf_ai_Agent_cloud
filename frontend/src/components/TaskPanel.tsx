@@ -38,7 +38,6 @@ const handleToggleComplete = (taskId: string) => {
     if (isConnected) {
       const success = sendMessage('complete_task', {
         taskId: taskId,
-        completed: newCompleted,
       });
 
       if (!success) {
@@ -52,6 +51,26 @@ const handleToggleComplete = (taskId: string) => {
     } else {
       console.warn('[TaskPanel] Not connected - task update not synced to backend');
       // TODO: Queue updates for later sync when connection restored
+    }
+};
+
+const handleDelete = (taskId: string) => {
+    // Optimistic removal
+    const removeTask = useAppStore.getState().removeTask;
+    removeTask(taskId);
+
+    // Sync to backend via WebSocket
+    if (isConnected) {
+      const success = sendMessage('delete_task', {
+        taskId: taskId,
+      });
+
+      if (!success) {
+        console.error('[TaskPanel] Failed to send delete request');
+        // TODO: Re-fetch tasks to restore state
+      }
+    } else {
+      console.warn('[TaskPanel] Not connected - delete not synced to backend');
     }
 };
 
@@ -141,6 +160,7 @@ return (
                 key={task.id}
                 task={task}
                 onToggleComplete={handleToggleComplete}
+                onDelete={handleDelete}
             />
             ))
         )}

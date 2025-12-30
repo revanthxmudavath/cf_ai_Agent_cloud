@@ -1,18 +1,26 @@
 import { PRIORITY_COLORS } from '../types';
 import type { Task } from '../types/index';
 import { format } from 'date-fns';
-import { CheckCircle2, Circle, Calendar } from 'lucide-react';
+import { CheckCircle2, Circle, Calendar, Trash2 } from 'lucide-react';
 
 interface TaskItemProps {
 task: Task;
 onToggleComplete?: (taskId: string) => void;
+onDelete?: (taskId: string) => void;
 }
 
-export function TaskItem({ task, onToggleComplete }: TaskItemProps) {
+export function TaskItem({ task, onToggleComplete, onDelete }: TaskItemProps) {
 const priorityColor = PRIORITY_COLORS[task.priority || 'low'];
 
 const handleToggle = () => {
     onToggleComplete?.(task.id);
+};
+
+const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete task "${task.title}"?`)) {
+      onDelete?.(task.id);
+    }
 };
 
 return (
@@ -49,7 +57,7 @@ return (
 
       
         <div className="flex items-center gap-2 mt-2 flex-wrap">
-         
+
             {task.priority && (
             <span
                 className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColor}`}
@@ -58,7 +66,7 @@ return (
             </span>
             )}
 
-          
+
             {task.dueDate && (
             <div className="flex items-center gap-1 text-xs text-gray-600">
                 <Calendar className="h-3 w-3" />
@@ -69,6 +77,15 @@ return (
             )}
         </div>
         </div>
+
+        {/* Delete button */}
+        <button
+        onClick={handleDelete}
+        className="text-gray-400 hover:text-red-600 transition-colors ml-2"
+        title="Delete task"
+        >
+        <Trash2 className="h-4 w-4" />
+        </button>
     </div>
     </div>
 );
