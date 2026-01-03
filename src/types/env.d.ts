@@ -37,7 +37,7 @@ export interface Message {
 }
 
 export interface WSMessage {
-      type: 'chat' | 'task' | 'status' | 'error' | 'confirmation_request' | 'confirmation_response' | 'tool_execution_result';
+      type: 'chat' | 'chat_response' | 'task' | 'task_list' | 'status' | 'error' | 'confirmation_request' | 'confirmation_response' | 'tool_execution_result';
       payload: any;
       timestamp: number;
   }

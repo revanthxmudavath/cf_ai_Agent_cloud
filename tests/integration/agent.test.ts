@@ -553,7 +553,7 @@ describe('PersonalAssistant Integration Tests', () => {
 
             // Response 1
             const resp1: WSMessage = {
-                type: 'chat_response',
+                type: 'chat',
                 payload: { content: 'Nice to meet you, Alice!', messageId: 'msg-1' },
                 timestamp: Date.now(),
             };
@@ -562,7 +562,7 @@ describe('PersonalAssistant Integration Tests', () => {
 
             // Message 2: Ask about name
             const msg2: WSMessage = {
-                type: 'chat',
+                type: 'chat_response',
                 payload: { content: 'What is my name?' },
                 timestamp: Date.now(),
             };
