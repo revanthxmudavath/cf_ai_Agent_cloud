@@ -23,8 +23,11 @@
     "agent",
     "llm"
   ],
-  "author": "Your Name",
+  "author": "Revanth",
   "license": "MIT",
+  "workspaces": [
+    "frontend"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "agents": "^0.2.32",
