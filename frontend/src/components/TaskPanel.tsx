@@ -3,6 +3,7 @@ import { TaskItem } from './TaskItem';
 import { ChevronLeft, ChevronRight, ListTodo } from 'lucide-react';
 import type { TaskFilter, WSMessageType } from '../types/index';
 import { useTasks } from '../hooks/useTasks';
+import React from 'react';
 
 interface TaskPanelProps {
   sendMessage: (type: WSMessageType, payload: any) => boolean;
@@ -11,12 +12,27 @@ interface TaskPanelProps {
 
 export function TaskPanel({ sendMessage, isConnected }: TaskPanelProps) {
 const userId = useAppStore((state) => state.userId);
-const tasks = useAppStore((state) => state.getFilteredTasks());
+
 const taskFilter = useAppStore((state) => state.taskFilter);
 const setTaskFilter = useAppStore((state) => state.setTaskFilter);
 const updateTask = useAppStore((state) => state.updateTask);
 const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
 const toggleSidebar = useAppStore((state) => state.toggleSidebar);
+
+const allTasks = useAppStore((state) => state.tasks);
+const tasks = React.useMemo(() => {
+    switch (taskFilter) {
+      case 'pending':
+        return allTasks.filter((t) => !t.completed);
+      
+      case 'completed':
+        return allTasks.filter((t) => t.completed);
+      
+      case 'all':
+      default: 
+        return allTasks;
+}
+}, [allTasks, taskFilter]);
 
 // Fetch tasks from backend on mount and when userId changes
 useTasks(userId);

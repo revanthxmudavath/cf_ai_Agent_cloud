@@ -775,6 +775,37 @@ private async generateLLMResponse(
     }));
     return;
   }
+
+  else {
+    // No tool calls - send direct response
+    const assistantMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'assistant',
+      content: responseContent,
+      timestamp: Date.now(),
+    };
+
+    this.state.conversationHistory.push(assistantMessage);
+
+    await this.saveMessageToD1(session.userId, assistantMessage);
+
+    // store assitant message embedding (silently fails if vectorize unavailable in local dev)
+
+    await this.vectorize.storeMessageEmbedding(
+      session.userId,
+      assistantMessage,
+      'conversation'
+    );
+
+    ws.send(JSON.stringify({
+      type: 'chat_response',
+      payload: {
+        content: responseContent,
+        messageId: assistantMessage.id,
+      },
+      timestamp: assistantMessage.timestamp,
+    }));
+  }
 }
 
   // Handle task creation

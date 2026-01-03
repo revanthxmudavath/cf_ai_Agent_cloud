@@ -119,14 +119,14 @@ import { useTasks } from './hooks/useTasks';
                 }
               break;
 
-          case 'task_deleted':
+          case 'delete_task':
               // Handle task deletion from WebSocket (direct message, not tool)
               console.log('[App] Task deleted via WebSocket:', wsMessage.payload.taskId);
               const removeTask = useAppStore.getState().removeTask;
               removeTask(wsMessage.payload.taskId);
               break;
 
-          case 'task_completed':
+          case 'complete_task':
               // Handle task completion from WebSocket (direct message, not tool)
               console.log('[App] Task completed via WebSocket:', wsMessage.payload.task);
               const updateTask = useAppStore.getState().updateTask;
