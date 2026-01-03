@@ -39,10 +39,6 @@ class_name = "TaskWorkflow"
 tag = "v1"
 new_sqlite_classes = ["PersonalAssistant"]
 
-# CPU Time Limits
-[limits]
-cpu_ms = 90000
-
 # Environment variables (optional)
 [vars]
 ENVIRONMENT = "development"
