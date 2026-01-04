@@ -9,6 +9,7 @@
   } from './TaskTools';
   import { getWeatherTool } from './WeatherTool';
   import { sendEmailTool } from './EmailTool';
+  import { createCalendarEventTool } from './GoogleCalendarTool';
 
   /**
    * All available MCP tools
@@ -24,6 +25,7 @@
     // External API tools
     getWeatherTool,
     sendEmailTool,
+    createCalendarEventTool,
   ];
 
   /**

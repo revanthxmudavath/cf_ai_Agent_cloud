@@ -1,12 +1,13 @@
 import { DurableObject } from 'cloudflare:workers';
 import { Env, AgentState, Message, Task, TaskWorkflowParams } from '../types/env';
 import { VectorizeManager } from './vectorize';
-import { MemoryManager, DEFAULT_SYSTEM_PROMPT, memoryManager } from './memory';
+import { DEFAULT_SYSTEM_PROMPT, memoryManager } from './memory';
 
 import { ConfirmationHandler, createConfirmationHandler } from '../mcp/ConfirmationHandler';
 
 import { getTool } from '../mcp/tools/index';
 import { ToolContext } from '../types/tools';
+import { ondemandscanning_v1beta1 } from 'googleapis';
 
 
 interface WebSocketSession {
@@ -18,6 +19,7 @@ interface WebSocketSession {
 interface RateLimitState {
   weatherCalls: number[];  // Timestamps of weather API calls
   emailSends: number[];    // Timestamps of email sends
+  calendarEvents: number[]; // Timestamps of calendar event creations
 }
 
 export class PersonalAssistant extends DurableObject<Env> {
@@ -343,8 +345,38 @@ export class PersonalAssistant extends DurableObject<Env> {
       0,
       now
     ).run();
+    
+    if (dueDate) {
+      try {
+        const calendarTool = getTool('createCalendarEvent');
 
-    return {
+        if( calendarTool) {
+          const calendarResult = await calendarTool.execute({
+            summary: title,
+            description: description || `Task: ${title}`,
+            startTime: dueDate * 1000,
+            endTime: dueDate * 1000 + (60 * 60 * 1000), // Default to 1 hour duration
+
+          },
+          {
+            userId,
+            env: this.env,
+            agent: this,
+          }
+        );
+
+        if (calendarResult.success) {
+          console.log(`[Calendar Sync] Event created: ${calendarResult.data?.eventId}`);
+        } else {
+          console.error(`[Calendar Sync] Failed: ${calendarResult.error}`);
+        }
+        }
+      } catch (error) {
+        console.error('[Calendar Sync] Error: ', error);
+      }
+    }
+
+    return { 
       id: taskId,
       userId,
       title,
@@ -1013,16 +1045,23 @@ private async generateLLMResponse(
   }
 
   // Rate limiting helpers
-  checkRateLimit(userId: string, type: 'weather' | 'email', maxCalls: number = 10, windowMs: number = 3600000): boolean {
+  checkRateLimit(userId: string, type: 'weather' | 'email' | 'calendar', maxCalls: number = 10, windowMs: number = 3600000): boolean {
     const now = Date.now();
     let userLimits = this.rateLimits.get(userId);
 
     if (!userLimits) {
-      userLimits = { weatherCalls: [], emailSends: [] };
+      userLimits = { weatherCalls: [], emailSends: [], calendarEvents: [] };
       this.rateLimits.set(userId, userLimits);
     }
 
-    const calls = type === 'weather' ? userLimits.weatherCalls : userLimits.emailSends;
+    let calls: number[];
+    if (type === 'weather') {
+      calls = userLimits.weatherCalls;
+    } else if (type === 'email') {
+      calls = userLimits.emailSends;
+    } else {
+      calls = userLimits.calendarEvents;
+    }
 
     // Remove calls outside the time window
     const validCalls = calls.filter(timestamp => now - timestamp < windowMs);
@@ -1034,25 +1073,28 @@ private async generateLLMResponse(
     return true; // Within limits
   }
 
-  recordRateLimitCall(userId: string, type: 'weather' | 'email'): void {
+  recordRateLimitCall(userId: string, type: 'weather' | 'email' | 'calendar'): void {
     const now = Date.now();
     let userLimits = this.rateLimits.get(userId);
 
     if (!userLimits) {
-      userLimits = { weatherCalls: [], emailSends: [] };
+      userLimits = { weatherCalls: [], emailSends: [], calendarEvents: [] };
       this.rateLimits.set(userId, userLimits);
     }
 
     if (type === 'weather') {
       userLimits.weatherCalls.push(now);
-    } else {
+    } else if (type === 'email') {
       userLimits.emailSends.push(now);
+    } else if ( type === 'calendar') {
+      userLimits.calendarEvents.push(now);
     }
 
     // Keep only last 24 hours of data to prevent memory bloat
     const oneDayAgo = now - 86400000;
     userLimits.weatherCalls = userLimits.weatherCalls.filter(t => t > oneDayAgo);
     userLimits.emailSends = userLimits.emailSends.filter(t => t > oneDayAgo);
+    userLimits.calendarEvents = userLimits.calendarEvents.filter(t => t > oneDayAgo);
   }
 
   // Extract JSON blocks from LLM response (tool calls) - ReDoS-safe implementation

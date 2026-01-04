@@ -85,6 +85,14 @@ ${docs}
     "subject": "Subject",
     "textBody": "Email message body text here"
   }`;
+
+      case 'createCalendarEvent':
+        return `{
+    "summary": "Team meating",
+    "description": "Discuss project updates",
+    "startTime": 1704283200000,
+    "endTime": 1704286800000      
+  }`
       default:
         return `{}`;
     }

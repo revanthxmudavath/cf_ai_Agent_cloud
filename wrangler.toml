@@ -1,6 +1,7 @@
 name = "agent-db"
 main = "src/index.ts"
 compatibility_date = "2024-11-22"
+compatibility_flags = ["nodejs_compat"]
 
 # Workers AI binding
 [ai]
@@ -42,6 +43,8 @@ new_sqlite_classes = ["PersonalAssistant"]
 # Environment variables (optional)
 [vars]
 ENVIRONMENT = "development"
+
+
 
 LLM_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 LLM_MAX_TOKENS = "500"

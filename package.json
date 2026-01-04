@@ -31,8 +31,9 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",
     "agents": "^0.2.32",
+    "googleapis": "^169.0.0",
     "hono": "^4.0.0",
-    "zod": "^3.23.8"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.11.1",

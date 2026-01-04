@@ -102,6 +102,42 @@ export interface EmailResult {
       submittedAt: string;
   }
 
+export const CreateCalendarEventSchema = z.object({
+    summary: z.string().min(1).max(200),
+    description: z.string().optional(),
+    startTime: z.preprocess(
+        (val) => {
+            if (typeof val === 'number') return val;
+            if (typeof val === 'string') {
+                const parsed = new Date(val).getTime();
+                return isNaN(parsed) ? undefined : parsed;
+            }
+            return undefined;
+        },
+        z.number()
+    ),
+    endTime: z.preprocess(
+        (val) => {
+            if (typeof val === 'number') return val;
+            if (typeof val === 'string') {
+                const parsed = new Date(val).getTime();
+                return isNaN(parsed) ? undefined : parsed;
+            }
+            return undefined;
+        },
+        z.number().optional()
+    ),
+
+});
+
+export interface CalendarEventResult {
+    eventId: string;
+    summary: string;
+    startTime: string;
+    endTime: string;
+    htmlLink: string;
+}
+
 // Tool calling with confirmation
 
 export interface ConfirmationRequest {
@@ -132,3 +168,4 @@ export type CompleteTaskParams = z.infer<typeof CompleteTaskSchema>;
 export type DeleteTaskParams = z.infer<typeof DeleteTaskSchema>;
 export type GetWeatherParams = z.infer<typeof GetWeatherSchema>;
 export type SendEmailParams = z.infer<typeof SendEmailSchema>;
+export type CreateCalendarEventParams = z.infer<typeof CreateCalendarEventSchema>;
