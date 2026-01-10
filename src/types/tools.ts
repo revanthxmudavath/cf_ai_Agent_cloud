@@ -1,3 +1,4 @@
+import { describe } from 'node:test';
 import { z } from 'zod';
 
 
@@ -130,6 +131,42 @@ export const CreateCalendarEventSchema = z.object({
 
 });
 
+export const UpdateCalendarEventSchema = z.object({
+
+    eventId: z.string().min(1),
+    summary: z.string().min(1).max(200).optional(),
+    description: z.string().optional(),
+    startTime: z.preprocess(
+        (val) => {
+            if (typeof val === 'number') return val;
+            if (typeof val === 'string') {
+                const parsed = new Date(val).getTime();
+                return isNaN(parsed) ? undefined : parsed;
+            }
+            return undefined;
+        },
+        z.number().optional()
+    ),
+    endTime: z.preprocess(
+        (val) => {
+            if (typeof val === 'number') return val;
+            if (typeof val === 'string') {
+                const parsed = new Date(val).getTime();
+                return isNaN(parsed) ? undefined : parsed;
+            }
+            return undefined;
+        },
+        z.number().optional()
+    ),
+
+});
+
+export const DeleteCalendarEventSchema = z.object({
+    eventId: z.string().min(1),
+});
+
+
+
 export interface CalendarEventResult {
     eventId: string;
     summary: string;
@@ -169,3 +206,5 @@ export type DeleteTaskParams = z.infer<typeof DeleteTaskSchema>;
 export type GetWeatherParams = z.infer<typeof GetWeatherSchema>;
 export type SendEmailParams = z.infer<typeof SendEmailSchema>;
 export type CreateCalendarEventParams = z.infer<typeof CreateCalendarEventSchema>;
+export type UpdateCalendarEventParams = z.infer<typeof UpdateCalendarEventSchema>;
+export type DeleteCalendarEventParams = z.infer<typeof DeleteCalendarEventSchema>;
