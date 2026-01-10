@@ -568,10 +568,28 @@ private async generateLLMResponse(
 ): Promise<string> {
 
     try {
+      const now = new Date();
+      const currentDateTime = now.toISOString();
+      const unixTimeStamp = now.getTime();
+
+      const enhancedSystemPrompt = `${DEFAULT_SYSTEM_PROMPT}
+
+      ## Current Date & Time:
+    - Current date/time: ${currentDateTime}
+    - Unix timestamp: ${unixTimeStamp} (milliseconds)
+    - When user says "today", use today's date: ${now.toISOString().split('T')[0]}
+    - When user says "tomorrow", add 24 hours (86400000 milliseconds)
+    - When calculating timestamps, remember they should be in milliseconds for JavaScript Date objects
+
+    Example calculations:
+    - "tomorrow at 2pm" = calculate tomorrow's date, set time to 14:00, convert to timestamp
+    - "next Monday" = find next Monday from today, convert to timestamp
+    - "in 3 days at 10am" = add 3 days to today, set time to 10:00, convert to timestamp`;
+
       const context = memoryManager.buildContext(conversationHistory, {
         maxTokens: 3500,
         maxMessages: 50,
-        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        systemPrompt: enhancedSystemPrompt,
       });
 
       const messages = memoryManager.formatForLLM(context);
@@ -657,13 +675,27 @@ private async generateLLMResponse(
       
       console.log(`[RAG] Found ${retrievedContext.length} relevant items`);
 
+      const now = new Date();
+      const currentDateTime = now.toISOString();
+      const unixTimeStamp = now.getTime();
+
+      const enhancedSystemPrompt = `${DEFAULT_SYSTEM_PROMPT}
+
+      ## Current Date & Time:
+      - Current date/time: ${currentDateTime}
+      - Unix timestamp: ${unixTimeStamp} (milliseconds)
+      - When user says "today", use today's date: ${now.toISOString().split('T')[0]}
+      - When user says "tomorrow", add 24 hours (86400000 milliseconds)
+      - When calculating timestamps, remember they should be in milliseconds for JavaScript Date objects`;
+
+      
       const context = memoryManager.prepareRAGContext(
         conversationHistory,
         retrievedContext,
         {
           maxTokens: 3500,
           maxMessages: 50,
-          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+          systemPrompt: enhancedSystemPrompt,
         }
       );
 
