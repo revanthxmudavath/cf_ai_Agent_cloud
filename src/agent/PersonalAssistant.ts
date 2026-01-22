@@ -345,36 +345,6 @@ export class PersonalAssistant extends DurableObject<Env> {
       0,
       now
     ).run();
-    
-    if (dueDate) {
-      try {
-        const calendarTool = getTool('createCalendarEvent');
-
-        if( calendarTool) {
-          const calendarResult = await calendarTool.execute({
-            summary: title,
-            description: description || `Task: ${title}`,
-            startTime: dueDate * 1000,
-            endTime: dueDate * 1000 + (60 * 60 * 1000), // Default to 1 hour duration
-
-          },
-          {
-            userId,
-            env: this.env,
-            agent: this,
-          }
-        );
-
-        if (calendarResult.success) {
-          console.log(`[Calendar Sync] Event created: ${calendarResult.data?.eventId}`);
-        } else {
-          console.error(`[Calendar Sync] Failed: ${calendarResult.error}`);
-        }
-        }
-      } catch (error) {
-        console.error('[Calendar Sync] Error: ', error);
-      }
-    }
 
     return { 
       id: taskId,
@@ -1294,7 +1264,7 @@ private formatToolResultAsSystemMessage(
 
         case 'createTask': {
           const task = result.output as any;
-          return `[Task Created] "${task.title}" (ID: ${task.id}, Priority: ${task.priority}${task.dueDate ? ', Due: ' + new Date(task.dueDate * 1000).toISOString() : ''})`;   
+          return `[Task Created] "${task.title}" (ID: ${task.id}, Priority: ${task.priority}${task.dueDate ? ', Due: ' + new Date(task.dueDate).toISOString() : ''})`;
         }
         case 'listTasks': {
           const tasks = result.output as any[];

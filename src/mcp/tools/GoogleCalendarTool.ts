@@ -19,7 +19,7 @@ import { u } from 'agents/dist/client-BZVYeBmf.js';
  */
 export const createCalendarEventTool: ToolDefinition = {
     name: 'createCalendarEvent',
-    description: 'WARNING: NEVER USE THIS FOR REMINDERS! Only for non-actionable calendar events. For "remind me" requests, you MUST use createTask tool instead.',
+    description: 'Create an event in Google Calendar. Use this when user explicitly asks to add something to their calendar. For actionable reminders ("remind me"), use createTask instead. Can be used alongside createTask if user wants both.',
     parameters: CreateCalendarEventSchema,
 
     async execute(params: CreateCalendarEventParams, context: ToolContext): Promise<ToolResult> {
@@ -115,7 +115,7 @@ export const createCalendarEventTool: ToolDefinition = {
  */
 export const updateCalendarEventTool: ToolDefinition = {
     name: 'updateCalendarEvent',
-    description: 'Update an existing calendar event (NOT for task reminders - use updateTask instead)',
+    description: 'Update an existing Google Calendar event. For task reminders, use updateTask instead.',
     parameters: UpdateCalendarEventSchema,
 
     async execute(params: UpdateCalendarEventParams, context: ToolContext): Promise<ToolResult> {
@@ -231,7 +231,7 @@ export const updateCalendarEventTool: ToolDefinition = {
  */
 export const deleteCalendarEventTool: ToolDefinition = {
     name: 'deleteCalendarEvent',
-    description: 'Delete a calendar event (NOT for task reminders - use deleteTask instead)',
+    description: 'Delete a Google Calendar event. For task reminders, use deleteTask instead.',
     parameters: DeleteCalendarEventSchema,
 
     async execute(params: DeleteCalendarEventParams, context: ToolContext): Promise<ToolResult> {

@@ -52,7 +52,9 @@ ${docs}
     switch (tool.name) {
       case 'createTask':
         return `{
-    "title": "Example task",
+    "title": "Buy groceries",
+    "dueDate": ${Date.now() + 86400000},
+    "description": "Milk, eggs, bread",
     "priority": "medium"
   }`;
       case 'listTasks':
