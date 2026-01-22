@@ -52,7 +52,9 @@ ${docs}
     switch (tool.name) {
       case 'createTask':
         return `{
-    "title": "Example task",
+    "title": "Buy groceries",
+    "dueDate": ${Date.now() + 86400000},
+    "description": "Milk, eggs, bread",
     "priority": "medium"
   }`;
       case 'listTasks':
@@ -92,7 +94,20 @@ ${docs}
     "description": "Discuss project updates",
     "startTime": 1704283200000,
     "endTime": 1704286800000      
-  }`
+  }`;
+
+      case 'updateCalendarEvent':
+        return `{
+    "eventId": "event-id-here",
+    "summary" : "Updated meeting title",
+    "startTime": 1704286800000,
+    }`;
+
+      case 'deleteCalendarEvent':
+        return `{
+    "eventId": "event-id-here"
+  }`;
+  
       default:
         return `{}`;
     }

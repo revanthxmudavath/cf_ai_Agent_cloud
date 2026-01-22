@@ -16,7 +16,7 @@ import {
 // Create a new Task 
 export const createTaskTool: ToolDefinition = {
     name: 'createTask',
-    description: 'Create a new task with title, optional description, due date, and priority',
+    description: 'USE THIS FOR ALL REMINDERS! Creates task and automatically syncs to Google Calendar. When user says "remind me", ALWAYS use this tool.',
     parameters: CreateTaskSchema,
     async execute(params: CreateTaskParams, context: ToolContext): Promise<ToolResult> {
         try {
