@@ -24,8 +24,10 @@ export interface Task {
 export interface UserProfile {
     id: string;
     name?: string;
+    email?: string;
     timezone?: string;
     preferences?: Record<string, any>;
+    google_calendar_connected?: boolean;
     createdAt: number;
   }
 

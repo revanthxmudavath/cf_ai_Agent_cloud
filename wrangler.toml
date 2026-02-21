@@ -43,7 +43,7 @@ new_sqlite_classes = ["PersonalAssistant"]
 # Environment variables (optional)
 [vars]
 ENVIRONMENT = "development"
-
+CLERK_PUBLISHABLE_KEY="pk_test_bWVycnktamF5LTU3LmNsZXJrLmFjY291bnRzLmRldiQ"
 
 
 LLM_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"

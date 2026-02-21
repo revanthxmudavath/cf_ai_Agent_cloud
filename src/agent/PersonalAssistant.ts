@@ -7,13 +7,16 @@ import { ConfirmationHandler, createConfirmationHandler } from '../mcp/Confirmat
 
 import { getTool } from '../mcp/tools/index';
 import { ToolContext } from '../types/tools';
-import { ondemandscanning_v1beta1 } from 'googleapis';
+import { DateParser, ParsedDate } from '../utils/DateParser';
+import { DateCorrector } from '../utils/DateCorrector';
 
 
 interface WebSocketSession {
   webSocket: WebSocket;
   userId: string;
   connectedAt: number;
+  lastParsedDates?: ParsedDate[];  // Store parsed dates for follow-up messages
+  lastParsedTimestamp?: number;     // When the dates were parsed
 }
 
 interface RateLimitState {
@@ -29,11 +32,15 @@ export class PersonalAssistant extends DurableObject<Env> {
   private vectorize: VectorizeManager;
   private confirmationHandler: ConfirmationHandler;
   private rateLimits: Map<string, RateLimitState>; // userId -> rate limit state
+  private dateParser: DateParser;
+  private dateCorrector: DateCorrector;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.vectorize = new VectorizeManager(env);
     this.confirmationHandler = createConfirmationHandler(60000);
+    this.dateParser = new DateParser();
+    this.dateCorrector = new DateCorrector();
 
     this.sessions = new Map();
     this.rateLimits = new Map();
@@ -294,6 +301,40 @@ export class PersonalAssistant extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Validate ISO 8601 date string format
+   * @param dateStr - ISO 8601 date string
+   * @param fieldName - Field name for error messages
+   * @throws Error if format is invalid
+   */
+  private validateIsoDateString(dateStr: string | undefined | null, fieldName: string = 'date'): void {
+    if (dateStr === undefined || dateStr === null) {
+      return; // Allow undefined/null
+    }
+
+    if (typeof dateStr !== 'string') {
+      throw new Error(`${fieldName} must be a string in ISO 8601 format`);
+    }
+
+    // Allow empty strings (treated as null)
+    if (!dateStr.trim()) {
+      return;
+    }
+
+    // Strict ISO 8601 regex
+    const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+    if (!iso8601Regex.test(dateStr)) {
+      throw new Error(`${fieldName} must be in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ), got: ${dateStr}`);
+    }
+
+    // Validate it's a real date
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      throw new Error(`${fieldName} is not a valid date: ${dateStr}`);
+    }
+  }
+
+
   // Ensure user exists in database
   private async ensureUser(userId: string): Promise<void> {
     try {
@@ -320,6 +361,20 @@ export class PersonalAssistant extends DurableObject<Env> {
     }
   }
 
+  // Get user's timezone from database
+  private async getUserTimezone(userId: string): Promise<string> {
+    try {
+      const user = await this.env.DB.prepare(
+        'SELECT timezone FROM users WHERE id = ?'
+      ).bind(userId).first();
+
+      return (user?.timezone as string) || 'UTC';
+    } catch (error) {
+      console.error('[PersonalAssistant] Error fetching user timezone:', error);
+      return 'UTC';
+    }
+  }
+
   // D1 Task CRUD Operations 
 
   // Create a new task
@@ -327,11 +382,21 @@ export class PersonalAssistant extends DurableObject<Env> {
     userId: string,
     title: string,
     description?: string,
-    dueDate?: number,
+    dueDate?: string,  // Now accepts ISO 8601 string
     priority: 'low' | 'medium' | 'high' = 'medium'
   ): Promise<Task> {
     const taskId = crypto.randomUUID();
     const now = Math.floor(Date.now() / 1000);
+
+    // Validate and convert dueDate if provided
+    let dueDateMs: number | undefined = undefined;
+    if (dueDate && dueDate.trim()) {
+      dueDateMs = new Date(dueDate).getTime();
+
+      if (isNaN(dueDateMs)) {
+        throw new Error(`Invalid date format: ${dueDate}. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)`);
+      }
+    }
 
     await this.env.DB.prepare(
       'INSERT INTO tasks (id, user_id, title, description, due_date, priority, completed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
@@ -340,48 +405,18 @@ export class PersonalAssistant extends DurableObject<Env> {
       userId,
       title,
       description || null,
-      dueDate || null,
+      dueDateMs ?? null,  // Convert undefined to null for database
       priority,
       0,
       now
     ).run();
-    
-    if (dueDate) {
-      try {
-        const calendarTool = getTool('createCalendarEvent');
 
-        if( calendarTool) {
-          const calendarResult = await calendarTool.execute({
-            summary: title,
-            description: description || `Task: ${title}`,
-            startTime: dueDate * 1000,
-            endTime: dueDate * 1000 + (60 * 60 * 1000), // Default to 1 hour duration
-
-          },
-          {
-            userId,
-            env: this.env,
-            agent: this,
-          }
-        );
-
-        if (calendarResult.success) {
-          console.log(`[Calendar Sync] Event created: ${calendarResult.data?.eventId}`);
-        } else {
-          console.error(`[Calendar Sync] Failed: ${calendarResult.error}`);
-        }
-        }
-      } catch (error) {
-        console.error('[Calendar Sync] Error: ', error);
-      }
-    }
-
-    return { 
+    return {
       id: taskId,
       userId,
       title,
       description,
-      dueDate,
+      dueDate: dueDateMs,  // Return milliseconds for compatibility
       completed: false,
       priority,
       createdAt: now,
@@ -425,11 +460,11 @@ export class PersonalAssistant extends DurableObject<Env> {
     updates: {
       title?: string;
       description?: string;
-      dueDate?: number;
+      dueDate?: string;  // Now accepts ISO 8601 string
       priority?: 'low' | 'medium' | 'high';
     }
   ): Promise<Task> {
-  
+
     const existing = await this.getTask(userId, taskId);
     if (!existing) {
       throw new Error('Task not found');
@@ -448,7 +483,24 @@ export class PersonalAssistant extends DurableObject<Env> {
     }
     if (updates.dueDate !== undefined) {
       fields.push('due_date = ?');
-      values.push(updates.dueDate || null);
+
+      // Handle null, empty string, and valid ISO 8601 strings
+      if (updates.dueDate === null) {
+        // Explicitly setting to null to clear due date in database
+        values.push(null);
+      } else if (updates.dueDate && updates.dueDate.trim()) {
+        // Convert ISO 8601 string to milliseconds
+        const dueDateMs = new Date(updates.dueDate).getTime();
+
+        if (isNaN(dueDateMs)) {
+          throw new Error(`Invalid date format: ${updates.dueDate}. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)`);
+        }
+
+        values.push(dueDateMs);
+      } else {
+        // Empty string or whitespace → treat as null in database
+        values.push(null);
+      }
     }
     if (updates.priority !== undefined) {
       fields.push('priority = ?');
@@ -568,10 +620,21 @@ private async generateLLMResponse(
 ): Promise<string> {
 
     try {
+      const now = new Date();
+      const todayDate = now.toISOString().split('T')[0];
+      const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+
+      const enhancedSystemPrompt = `## Current Date Context
+TODAY: ${todayDate}
+TOMORROW: ${tomorrowDate}
+Current time (UTC): ${now.toISOString()}
+
+${DEFAULT_SYSTEM_PROMPT}`;
+
       const context = memoryManager.buildContext(conversationHistory, {
         maxTokens: 3500,
         maxMessages: 50,
-        systemPrompt: DEFAULT_SYSTEM_PROMPT,
+        systemPrompt: enhancedSystemPrompt,
       });
 
       const messages = memoryManager.formatForLLM(context);
@@ -629,7 +692,8 @@ private async generateLLMResponse(
   private async generateLLMResponseWithRAG(
     userId: string,
     userMessage: string,
-    conversationHistory: Message[]
+    conversationHistory: Message[],
+    parsedDates: any[] = []  // Parsed dates from DateParser
   ): Promise<string> {
 
     try {
@@ -657,13 +721,28 @@ private async generateLLMResponse(
       
       console.log(`[RAG] Found ${retrievedContext.length} relevant items`);
 
+      const now = new Date();
+      const todayDate = now.toISOString().split('T')[0];
+      const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+
+      const enhancedSystemPrompt = 
+      `## Current Date Context
+      TODAY: ${todayDate}
+      TOMORROW: ${tomorrowDate}
+      Current time (UTC): ${now.toISOString()}
+
+      ${parsedDates.length > 0 ? this.dateParser.buildDateContext(parsedDates) : ''}
+
+      ${DEFAULT_SYSTEM_PROMPT}`;
+
+      
       const context = memoryManager.prepareRAGContext(
         conversationHistory,
         retrievedContext,
         {
           maxTokens: 3500,
           maxMessages: 50,
-          systemPrompt: DEFAULT_SYSTEM_PROMPT,
+          systemPrompt: enhancedSystemPrompt,
         }
       );
 
@@ -732,16 +811,57 @@ private async generateLLMResponse(
       'conversation'
     );
 
+    // 🎯 PARSE DATES from user message (with timezone support)
+    const userTimezone = await this.getUserTimezone(session.userId);
+    this.dateParser.setTimezone(userTimezone);
+
+    let parsedDates = this.dateParser.parse(content);
+    const now = Date.now();
+
+    if (parsedDates.length > 0) {
+      // New dates detected - store them for follow-up messages
+      console.log(`[DATE PARSER] 🎯 Detected date phrases (timezone: ${userTimezone}):`);
+      console.log(this.dateParser.formatParsedDates(parsedDates));
+      session.lastParsedDates = parsedDates;
+      session.lastParsedTimestamp = now;
+    } else {
+      // No dates in current message - check if we have recent parsed dates from previous message
+      const twoMinutesAgo = now - (2 * 60 * 1000);
+      if (session.lastParsedDates && session.lastParsedTimestamp && session.lastParsedTimestamp > twoMinutesAgo) {
+        console.log(`[DATE PARSER] No dates in current message, reusing dates from ${Math.round((now - session.lastParsedTimestamp) / 1000)}s ago`);
+        console.log(this.dateParser.formatParsedDates(session.lastParsedDates));
+        parsedDates = session.lastParsedDates;
+      } else {
+        console.log('[DATE PARSER] No date phrases detected in message');
+      }
+    }
+
     const responseContent = await this.generateLLMResponseWithRAG(
       session.userId,
       content,
-      this.state.conversationHistory
+      this.state.conversationHistory,
+      parsedDates  // Pass parsed dates to LLM
     );
 
-    const toolCalls = this.extractJSONBlocks(responseContent);
+    let toolCalls = this.extractJSONBlocks(responseContent);
 
     if (toolCalls.length > 0) {
       console.log(`[PersonalAssistant] Detected ${toolCalls.length} tool call(s) in response`);
+
+      // Correct any incorrect dates in tool calls
+      const { toolCalls: correctedToolCalls, report } = this.dateCorrector.correctToolCallDates(
+        toolCalls,
+        parsedDates
+      );
+
+      if (report.corrected) {
+        console.log(`[DATE CORRECTION] 🔧 Fixed ${report.changes.length} date(s):`);
+        report.changes.forEach(change => {
+          console.log(`  - ${change.toolName}.${change.field}: ${change.oldValue} → ${change.newValue}`);
+        });
+      }
+
+      toolCalls = correctedToolCalls;
 
       const toolResultMessage: string[] = [];
 
@@ -777,7 +897,8 @@ private async generateLLMResponse(
     const followUpResponse = await this.generateLLMResponseWithRAG(
       session.userId,
       content,
-      this.state.conversationHistory 
+      this.state.conversationHistory,
+      parsedDates  // Pass parsed dates to follow-up LLM call
     );
 
     const assistantMessage: Message = {
@@ -845,6 +966,9 @@ private async generateLLMResponse(
     await this.ensureUser(session.userId);
 
     try {
+      // Validate dueDate format if provided
+      this.validateIsoDateString(data.dueDate, 'dueDate');
+
       const task = await this.createTask(
         session.userId,
         data.title,
@@ -855,10 +979,11 @@ private async generateLLMResponse(
 
       if (task.dueDate) {
         try {
-          const reminderTime = task.dueDate - (24 * 60 * 60); 
-          const now = Math.floor(Date.now() / 1000);
+          // Calculate reminder time: 24 hours before due date (in milliseconds)
+          const reminderTime = task.dueDate - (24 * 60 * 60 * 1000);
+          const now = Date.now(); // Current time in milliseconds
 
-          
+          // Only schedule if reminder time is in the future
           if (reminderTime > now) {
             const workflowParams: TaskWorkflowParams = {
               userId: session.userId,
@@ -961,6 +1086,9 @@ private async generateLLMResponse(
       if (!data.taskId) {
         throw new Error('taskId is required');
       }
+
+      // Validate dueDate format if provided
+      this.validateIsoDateString(data.dueDate, 'dueDate');
 
       const task = await this.updateTask(session.userId, data.taskId, {
         title: data.title,
@@ -1262,7 +1390,7 @@ private formatToolResultAsSystemMessage(
 
         case 'createTask': {
           const task = result.output as any;
-          return `[Task Created] "${task.title}" (ID: ${task.id}, Priority: ${task.priority}${task.dueDate ? ', Due: ' + new Date(task.dueDate * 1000).toISOString() : ''})`;   
+          return `[Task Created] "${task.title}" (ID: ${task.id}, Priority: ${task.priority}${task.dueDate ? ', Due: ' + new Date(task.dueDate).toISOString() : ''})`;
         }
         case 'listTasks': {
           const tasks = result.output as any[];

@@ -224,6 +224,15 @@ export const DEFAULT_SYSTEM_PROMPT = `You are a helpful personal assistant. You 
   3. Tool will be executed after user approval
   4. You can call multiple tools in sequence
 
+  ## Date and Time Handling:
+
+  **For tasks/events with dates:** Use ISO 8601 format "YYYY-MM-DDTHH:MM:SSZ"
+
+  If the system provides parsed dates (look for "🎯 PARSED DATES"), use those EXACTLY as given.
+  Otherwise, use the current date/time from context (TODAY/TOMORROW values).
+
+  Format: "2026-02-21T15:00:00Z" (year-month-dayThour:minute:secondZ)
+
   ## Example Responses:
 
   **Creating a task:**
@@ -234,7 +243,7 @@ export const DEFAULT_SYSTEM_PROMPT = `You are a helpful personal assistant. You 
     "tool": "createTask",
     "params": {
       "title": "Buy groceries",
-      "description": "Milk, eggs, bread",
+      "dueDate": "2026-02-21T15:00:00Z",
       "priority": "high"
     }
   }
@@ -276,12 +285,38 @@ export const DEFAULT_SYSTEM_PROMPT = `You are a helpful personal assistant. You 
 
   ## Guidelines:
 
-  - **Use tools for actions**: Task management, weather lookup, updating calendar, sending emails
+  - **Use tools for actions**: Task management, weather lookup, calendar events, sending emails
+  - **For reminders and actionable tasks**: Use createTask tool. Tasks appear in the task list sidebar.
+  - **For calendar events**: Use createCalendarEvent to add events to Google Calendar.
   - **Use conversation for**: Answering questions, providing information, casual chat
   - **Always explain** what you're doing before calling a tool
   - **One tool per JSON block**: Makes approval easier
   - **Valid JSON only**: Ensure proper JSON formatting
   - **After tools execute**: Tool results appear as system messages formatted like [Tool Name] data...
+
+    ## CRITICAL: Tool Selection for Tasks vs Calendar Events
+
+  **When user says "remind me" or creates a task:**
+  - ✅ Use createTask tool for actionable reminders
+  - Tasks appear in the task list sidebar
+  - Tasks do NOT automatically sync to calendar
+
+  **When user wants to add something to their calendar:**
+  - ✅ Use createCalendarEvent tool
+  - This adds events directly to Google Calendar
+  - Use for: meetings, appointments, scheduled events
+
+  **If user wants BOTH (task AND calendar event):**
+  - Call createTask first
+  - Then call createCalendarEvent separately
+  - User will approve both actions
+
+  **Examples:**
+  - "Remind me to call John tomorrow" → createTask ✅
+  - "Create a task to review the proposal" → createTask ✅
+  - "Add team meeting to my calendar" → createCalendarEvent ✅
+  - "Remind me about the dentist appointment and add it to calendar" → createTask + createCalendarEvent ✅
+  - "Block calendar for lunch" → createCalendarEvent ✅
 
   ## Handling Tool Results:
 

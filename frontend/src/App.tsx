@@ -1,174 +1,210 @@
 import { useEffect, useCallback } from 'react';
-  import { useAppStore } from './stores/appStore';
-  import { ChatInterface } from './components/ChatInterface';
-  import { ConfirmationDialog } from './components/ConfirmationDialog';
+import {
+SignedIn, SignedOut, SignInButton, useAuth, useUser } from '@clerk/clerk-react';
+import { useAppStore } from './stores/appStore';
+import { ChatInterface } from './components/ChatInterface';
+import { ConfirmationDialog } from './components/ConfirmationDialog';
 import { TaskPanel } from './components/TaskPanel';
 import { useWebSocket } from './hooks/useWebSocket';
 import type { WSMessage, Message } from './types/index';
 import { useTasks } from './hooks/useTasks';
+import { SettingsPanel } from './components/SettingsPanel';
+import { useTimezone } from './hooks/useTimezone';
 
-  function App() {
-    const setUserId = useAppStore((state) => state.setUserId);
-    const userId = useAppStore((state) => state.userId);
-    const addMessage = useAppStore((state) => state.addMessage);
-    const setIsTyping = useAppStore((state) => state.setIsTyping);
-    const setPendingConfirmation = useAppStore((state) => state.setPendingConfirmation);
 
-    const { fetchTasks } = useTasks(userId);
+function AuthenticatedApp() {
+const { getToken } = useAuth();
+const { user } = useUser();
 
-    useEffect(() => {
-      async function initializeUser() {
-        try {
-          // Check if userId exists in localStorage
-          const storedUserId = localStorage.getItem('userId');
+const setUserId = useAppStore((state) => state.setUserId);
+const setUserProfile = useAppStore((state) => state.setUserProfile);
+const userId = useAppStore((state) => state.userId);
+const addMessage = useAppStore((state) => state.addMessage);
+const setIsTyping = useAppStore((state) => state.setIsTyping);
+const setPendingConfirmation = useAppStore((state) => state.setPendingConfirmation);
 
-          if (storedUserId) {
-            console.log('[App] Using stored userId:', storedUserId);
-            setUserId(storedUserId);
-            return;
-          }
+const { fetchTasks } = useTasks(userId);
 
-          // Generate new userId if none exists
-          const response = await fetch('/api/users/generate-id');
-          const data = await response.json();
+// Auto-detect and 
+useTimezone();
 
-          console.log('[App] Generated new userId:', data.userId);
+useEffect(() => {
+  async function initializeUser() {
+    try {
+      const token = await getToken();
+      if (!token) return;
 
-          // Store in localStorage for persistence
-          localStorage.setItem('userId', data.userId);
-          setUserId(data.userId);
-        } catch (error) {
-          console.error('[App] Failed to generate userId:', error);
+      // Fetch user profile
+      const response = await fetch('http://localhost:5173/api/me', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
-          // Fallback: generate client-side UUID
-          const fallbackUserId = crypto.randomUUID();
-          console.log('[App] Using fallback userId:', fallbackUserId);
-          localStorage.setItem('userId', fallbackUserId);
-          setUserId(fallbackUserId);
+      if (response.ok) {
+        const profile = await response.json();
+        setUserProfile(profile);
+        setUserId(profile.id);
+        console.log('[App] User authenticated:', profile.id);
         }
+      } catch (error) {
+        console.error('[App] Failed to fetch user profile:', error);
       }
+    }
 
+    if (user) {
       initializeUser();
-    }, [setUserId]);
+    }
+  }, [user, getToken, setUserId, setUserProfile]);
 
-    // Centralized WebSocket message handler
-    const handleWebSocketMessage = useCallback((wsMessage: WSMessage) => {
-      console.log('[App] Received message:', wsMessage.type);
+  // Get fresh token for WebSocket connection
+  const getWebSocketToken = useCallback(async () => {
+    const token = await getToken();
+    return token;
+  }, [getToken]);
 
-      switch (wsMessage.type) {
-          case 'connected':
-              console.log('[App] Connected as user:', wsMessage.payload.userId);
-          break;
+  // WebSocket message handler
+  const handleWebSocketMessage = useCallback((wsMessage: WSMessage) => {
+    console.log('[App] Received message:', wsMessage.type);
 
-          case 'chat_response':
-              const assistantMessage: Message = {
-                  id: wsMessage.payload.messageId || crypto.randomUUID(),
-                  role: 'assistant',
-                  content: wsMessage.payload.content,
-                  timestamp: wsMessage.timestamp,
-              };
-              addMessage(assistantMessage);
-              setIsTyping(false);
-              break;
+    switch (wsMessage.type) {
+      case 'connected':
+        console.log('[App] Connected as user:', wsMessage.payload.userId);
+        break;
 
-          case 'confirmation_request':
-              console.log('[App] Confirmation requested:', wsMessage.payload);
-              setPendingConfirmation({
-                  requestId: wsMessage.payload.requestId,
-                  code: wsMessage.payload.code,
-                  toolCalls: wsMessage.payload.toolCalls,
-                  expiresAt: Date.now() + wsMessage.payload.timeout,
-              });
-              setIsTyping(false);
-              break;
+      case 'chat_response':
+        const assistantMessage: Message = {
+          id: wsMessage.payload.messageId || crypto.randomUUID(),
+          role: 'assistant',
+          content: wsMessage.payload.content,
+          timestamp: wsMessage.timestamp,
+        };
+        addMessage(assistantMessage);
+        setIsTyping(false);
+        break;
 
-          case 'tool_execution_result':
-              // Add tool result as system message with actual data
-              console.log('[App] Tool execution result:', JSON.stringify(wsMessage.payload, null, 2));
-              let resultContent = '';
+      case 'confirmation_request':
+        setPendingConfirmation({
+          requestId: wsMessage.payload.requestId,
+          code: wsMessage.payload.code,
+          toolCalls: wsMessage.payload.toolCalls,
+          expiresAt: Date.now() + wsMessage.payload.timeout,
+        });
+        setIsTyping(false);
+        break;
 
-              if (wsMessage.payload.success) {
-                  // Show actual tool output data for different tools
-                  if (wsMessage.payload.toolName === 'getWeather' && wsMessage.payload.output?.city) {
-                      const weather = wsMessage.payload.output;
-                      resultContent = `🌤️ Weather in ${weather.city}, ${weather.country}:\n` +
-                          `Temperature: ${weather.temperature}°C (feels like ${weather.feelsLike}°C)\n` +
-                          `Conditions: ${weather.description}\n` +
-                          `Humidity: ${weather.humidity}% | Wind: ${weather.windSpeed} m/s`;
-                  } else if (wsMessage.payload.output?.message) {
-                      resultContent = `✅ ${wsMessage.payload.output.message}`;
-                  } else {
-                      resultContent = `✅ Tool "${wsMessage.payload.toolName}" executed successfully`;
-                  }
-              } else {
-                  resultContent = `❌ Tool "${wsMessage.payload.toolName}" failed: ${wsMessage.payload.error}`;
-              }
+      case 'tool_execution_result':
+        if (wsMessage.payload.success &&
+          ['createTask', 'updateTask', 'completeTask', 'deleteTask'].includes(wsMessage.payload.toolName)) {
+          fetchTasks();
+        }
+        break;
 
-              const resultMessage: Message = {
-                  id: crypto.randomUUID(),
-                  role: 'system',
-                  content: resultContent,
-                  timestamp: wsMessage.timestamp,
-              };
-              addMessage(resultMessage);
+      case 'error':
+        const errorMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'system',
+          content: `Error: ${wsMessage.payload.message}`,
+          timestamp: wsMessage.timestamp,
+        };
+        addMessage(errorMessage);
+        setIsTyping(false);
+        break;
 
-              if (wsMessage.payload.success &&
-                ['createTask', 'updateTask', 'completeTask', 'deleteTask'].includes(wsMessage.payload.toolName)) {
-                  console.log('[App] Refreshing tasks after tool execution');
-                  fetchTasks();
-                }
-              break;
-
-          case 'delete_task':
-              // Handle task deletion from WebSocket (direct message, not tool)
-              console.log('[App] Task deleted via WebSocket:', wsMessage.payload.taskId);
-              const removeTask = useAppStore.getState().removeTask;
-              removeTask(wsMessage.payload.taskId);
-              break;
-
-          case 'complete_task':
-              // Handle task completion from WebSocket (direct message, not tool)
-              console.log('[App] Task completed via WebSocket:', wsMessage.payload.task);
-              const updateTask = useAppStore.getState().updateTask;
-              updateTask(wsMessage.payload.task.id, wsMessage.payload.task);
-              break;
-
-          case 'error':
-              const errorMessage: Message = {
-                  id: crypto.randomUUID(),
-                  role: 'system',
-                  content: `Error: ${wsMessage.payload.message}`,
-                  timestamp: wsMessage.timestamp,
-              };
-              addMessage(errorMessage);
-              setIsTyping(false);
-              break;
-
-          case 'status':
-              console.log('[App] Status:', wsMessage.payload.message);
-              break;
-
-          default:
-              console.warn('[App] Unknown message type:', wsMessage.type);
+      default:
+        console.warn('[App] Unknown message type:', wsMessage.type);
     }
   }, [addMessage, setIsTyping, setPendingConfirmation, fetchTasks]);
 
-  // Single WebSocket connection for entire app
+  // WebSocket with token-based auth
   const { status, sendMessage, isConnected } = useWebSocket(userId, {
-      onMessage: handleWebSocketMessage,
+    url: 'ws://localhost:8787/ws',
+    getToken: getWebSocketToken,
+    onMessage: handleWebSocketMessage,
   });
 
-    return (
-      <>
-        <TaskPanel sendMessage={sendMessage} isConnected={isConnected} />
+  return (
+    <div className="h-screen flex overflow-hidden bg-gradient-to-br from-cream-50 via-white to-cream-100 animate-fade-in">
+      <TaskPanel sendMessage={sendMessage} isConnected={isConnected} />
+      <div className="flex-1 flex flex-col">
         <ChatInterface
           status={status}
           sendMessage={sendMessage}
           isConnected={isConnected}
         />
-        <ConfirmationDialog sendMessage={sendMessage} />
-      </>
-    );
-  }
+      </div>
+      <ConfirmationDialog sendMessage={sendMessage} />
+      <SettingsPanel />
+    </div>
+  );
+}
 
-  export default App;
+function App() {
+  return (
+    <>
+      <SignedOut>
+        <div className="relative flex items-center justify-center min-h-screen overflow-hidden bg-gradient-to-br from-cream-50 via-white to-indigo-50">
+          {/* Animated gradient orbs */}
+          <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-gradient-to-br from-indigo-200/40 to-amber-200/40 rounded-full blur-3xl animate-pulse"
+               style={{ animationDuration: '8s' }} />
+          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-amber-200/30 to-indigo-200/30 rounded-full blur-3xl animate-pulse"
+               style={{ animationDuration: '10s', animationDelay: '2s' }} />
+
+          {/* Main content */}
+          <div className="relative z-10 text-center px-6 animate-slide-up">
+            {/* Logo/Icon */}
+            <div className="mb-8 inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-indigo-600 shadow-2xl shadow-indigo-500/50 animate-fade-in">
+              <svg className="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+
+            {/* Heading */}
+            <h1 className="text-5xl md:text-6xl font-bold mb-4 tracking-tight animate-slide-up delay-100">
+              <span className="text-gradient">AI Personal Assistant</span>
+            </h1>
+
+            {/* Subheading */}
+            <p className="text-lg md:text-xl text-navy-600 mb-12 max-w-md mx-auto font-light tracking-wide animate-slide-up delay-200">
+              Your intelligent companion for tasks, calendars, and seamless productivity
+            </p>
+
+            {/* Sign in button */}
+            <div className="animate-slide-up delay-300">
+              <SignInButton mode="modal">
+                <button className="btn-primary group">
+                  <span className="relative z-10 flex items-center gap-2">
+                    Sign In to Continue
+                    <svg className="w-5 h-5 transition-transform group-hover:translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                    </svg>
+                  </span>
+                </button>
+              </SignInButton>
+            </div>
+
+            {/* Feature badges */}
+            <div className="mt-16 flex flex-wrap gap-4 justify-center items-center text-sm text-navy-600 animate-fade-in delay-400">
+              <div className="flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-full border border-white/40 shadow-sm">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                <span>Powered by Cloudflare AI</span>
+              </div>
+              <div className="flex items-center gap-2 px-4 py-2 bg-white/60 backdrop-blur-sm rounded-full border border-white/40 shadow-sm">
+                <svg className="w-4 h-4 text-indigo-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                </svg>
+                <span>Secure & Private</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </SignedOut>
+
+      <SignedIn>
+        <AuthenticatedApp />
+      </SignedIn>
+    </>
+  );
+}
+
+export default App;

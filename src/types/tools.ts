@@ -1,4 +1,3 @@
-import { describe } from 'node:test';
 import { z } from 'zod';
 
 
@@ -25,24 +24,39 @@ export interface ToolResult {
 
 // Task schemas
 
-// Helper to parse date strings to Unix timestamps
-const dueDatePreprocess = z.preprocess(
+// ISO 8601 datetime string validator (accepts both with/without milliseconds)
+const isoDateTimeSchema = z.string().refine(
     (val) => {
-        if (typeof val === 'number') return val; // Already a timestamp
-        if (typeof val === 'string') {
-            const parsed = new Date(val).getTime();
-            return isNaN(parsed) ? undefined : parsed; // Convert string to timestamp
+        // Strict ISO 8601 regex: YYYY-MM-DDTHH:MM:SS.sssZ or YYYY-MM-DDTHH:MM:SSZ
+        const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+
+        if (!iso8601Regex.test(val)) {
+            return false;
         }
-        return undefined; // Invalid type
+
+        // Verify it's a valid date (catches cases like 2026-02-30)
+        const date = new Date(val);
+        return !isNaN(date.getTime());
     },
-    z.number().optional()
+    { message: 'Must be a valid ISO 8601 datetime string (e.g., "2026-02-20T17:00:00Z" or "2026-02-20T17:00:00.123Z")' }
+).optional();
+
+// Required (non-optional) version of ISO 8601 validator
+const requiredIsoDateTimeSchema = z.string().refine(
+    (val) => {
+        const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+        if (!iso8601Regex.test(val)) return false;
+        const date = new Date(val);
+        return !isNaN(date.getTime());
+    },
+    { message: 'Must be a valid ISO 8601 datetime string (e.g., "2026-02-20T17:00:00Z")' }
 );
 
 export const CreateTaskSchema = z.object({
-    title: z.string().min(1).max(200),
-    description: z.string().optional(),
-    dueDate: dueDatePreprocess,
-    priority: z.enum(['low', 'medium', 'high']).optional(),
+    title: z.string().min(1).max(200).describe('Task title'),
+    description: z.string().optional().describe('Task description (optional)'),
+    dueDate: isoDateTimeSchema.describe('Task due date/time in ISO 8601 format (e.g., "2026-02-20T17:00:00Z"). Use UTC timezone with Z suffix.'),
+    priority: z.enum(['low', 'medium', 'high']).optional().describe('Task priority level'),
 
 });
 
@@ -52,11 +66,11 @@ export const ListTasksSchema = z.object({
 
 
 export const UpdateTaskSchema = z.object({
-      taskId: z.string().uuid(),
-      title: z.string().min(1).max(200).optional(),
-      description: z.string().optional(),
-      dueDate: dueDatePreprocess,
-      priority: z.enum(['low', 'medium', 'high']).optional(),
+      taskId: z.string().uuid().describe('Unique task identifier'),
+      title: z.string().min(1).max(200).optional().describe('New task title'),
+      description: z.string().optional().describe('New task description'),
+      dueDate: isoDateTimeSchema.describe('New due date/time in ISO 8601 format (e.g., "2026-02-20T17:00:00Z")'),
+      priority: z.enum(['low', 'medium', 'high']).optional().describe('New priority level'),
   });
 
 export const CompleteTaskSchema = z.object({
@@ -104,61 +118,18 @@ export interface EmailResult {
   }
 
 export const CreateCalendarEventSchema = z.object({
-    summary: z.string().min(1).max(200),
-    description: z.string().optional(),
-    startTime: z.preprocess(
-        (val) => {
-            if (typeof val === 'number') return val;
-            if (typeof val === 'string') {
-                const parsed = new Date(val).getTime();
-                return isNaN(parsed) ? undefined : parsed;
-            }
-            return undefined;
-        },
-        z.number()
-    ),
-    endTime: z.preprocess(
-        (val) => {
-            if (typeof val === 'number') return val;
-            if (typeof val === 'string') {
-                const parsed = new Date(val).getTime();
-                return isNaN(parsed) ? undefined : parsed;
-            }
-            return undefined;
-        },
-        z.number().optional()
-    ),
-
+    summary: z.string().min(1).max(200).describe('Event title/summary'),
+    description: z.string().optional().describe('Event description (optional)'),
+    startTime: requiredIsoDateTimeSchema.describe('Event start time in ISO 8601 format (e.g., "2026-02-20T17:00:00Z"). Always use UTC timezone with Z suffix.'),
+    endTime: isoDateTimeSchema.describe('Event end time in ISO 8601 format (e.g., "2026-02-20T18:00:00Z"). Defaults to 1 hour after start if not provided.'),
 });
 
 export const UpdateCalendarEventSchema = z.object({
-
-    eventId: z.string().min(1),
-    summary: z.string().min(1).max(200).optional(),
-    description: z.string().optional(),
-    startTime: z.preprocess(
-        (val) => {
-            if (typeof val === 'number') return val;
-            if (typeof val === 'string') {
-                const parsed = new Date(val).getTime();
-                return isNaN(parsed) ? undefined : parsed;
-            }
-            return undefined;
-        },
-        z.number().optional()
-    ),
-    endTime: z.preprocess(
-        (val) => {
-            if (typeof val === 'number') return val;
-            if (typeof val === 'string') {
-                const parsed = new Date(val).getTime();
-                return isNaN(parsed) ? undefined : parsed;
-            }
-            return undefined;
-        },
-        z.number().optional()
-    ),
-
+    eventId: z.string().min(1).describe('Google Calendar event ID'),
+    summary: z.string().min(1).max(200).optional().describe('New event title'),
+    description: z.string().optional().describe('New event description'),
+    startTime: isoDateTimeSchema.describe('New start time in ISO 8601 format (e.g., "2026-02-20T17:00:00Z")'),
+    endTime: isoDateTimeSchema.describe('New end time in ISO 8601 format (e.g., "2026-02-20T18:00:00Z")'),
 });
 
 export const DeleteCalendarEventSchema = z.object({
