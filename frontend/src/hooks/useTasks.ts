@@ -1,31 +1,42 @@
 import { useEffect, useCallback } from "react";
-import { useAppStore } from "../stores/appStore";
+  import { useAppStore } from "../stores/appStore";
+  import { useAuth } from "@clerk/clerk-react";
 
-export function useTasks(userId: string | null) {
-    const setTasks = useAppStore((state) => state.setTasks);
+  export function useTasks(userId: string | null) {
+      const { getToken } = useAuth();
+      const setTasks = useAppStore((state) => state.setTasks);
 
-    const fetchTasks = useCallback(async () => {
-        if (!userId) return;
+      const fetchTasks = useCallback(async () => {
+          if (!userId) return;
 
-        try {
-            const response = await fetch(`/api/user/${userId}/tasks`);
-            if(!response.ok) {
-                throw new Error('Failed to fetch tasks.');
-            }
+          try {
+              const token = await getToken();
+              if (!token) return;
 
-            const data = await response.json();
-            console.log('[useTasks] Fetched tasks:', data.tasks.length);
+              // Use new protected API route with auth token
+              const response = await fetch('/api/tasks', {
+                  headers: {
+                      'Authorization': `Bearer ${token}`,
+                  },
+              });
 
-            setTasks(data.tasks || []);
+              if (!response.ok) {
+                  throw new Error('Failed to fetch tasks.');
+              }
 
-        } catch (error) {
-            console.error('[useTasks] Error fetching tasks:', error);
-        }
-    }, [userId, setTasks]);
+              const data = await response.json();
+              console.log('[useTasks] Fetched tasks:', data.tasks?.length || 0);
 
-    useEffect(() => {
-        fetchTasks();
-    }, [fetchTasks]);
+              setTasks(data.tasks || []);
 
-    return { fetchTasks };
-}
+          } catch (error) {
+              console.error('[useTasks] Error fetching tasks:', error);
+          }
+      }, [userId, setTasks, getToken]);
+
+      useEffect(() => {
+          fetchTasks();
+      }, [fetchTasks]);
+
+      return { fetchTasks };
+  }

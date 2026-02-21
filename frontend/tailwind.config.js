@@ -52,7 +52,36 @@
             '3': 'hsl(var(--chart-3))',
             '4': 'hsl(var(--chart-4))',
             '5': 'hsl(var(--chart-5))'
-          }
+          },
+          // Custom editorial color palette
+          navy: {
+            400: 'hsl(220 20% 50%)',
+            500: 'hsl(220 20% 40%)',
+            600: 'hsl(var(--navy-600))',
+            700: 'hsl(var(--navy-700))',
+            800: 'hsl(var(--navy-800))',
+            900: 'hsl(var(--navy-900))',
+            950: 'hsl(var(--navy-950))',
+          },
+          cream: {
+            50: 'hsl(var(--cream-50))',
+            100: 'hsl(var(--cream-100))',
+            200: 'hsl(var(--cream-200))',
+          },
+          amber: {
+            400: 'hsl(var(--amber-400))',
+            500: 'hsl(var(--amber-500))',
+            600: 'hsl(var(--amber-600))',
+          },
+          indigo: {
+            50: 'hsl(234 89% 96%)',
+            100: 'hsl(234 89% 92%)',
+            200: 'hsl(234 89% 84%)',
+            400: 'hsl(var(--indigo-400))',
+            500: 'hsl(var(--indigo-500))',
+            600: 'hsl(var(--indigo-600))',
+            700: 'hsl(234 89% 44%)',
+          },
         }
       }
     },

@@ -41,17 +41,22 @@ export function ChatInterface({ status, sendMessage, isConnected }: ChatInterfac
     }, [isConnected, sendMessage, addMessage, setIsTyping]);
 
     return (
-    <div className={`flex flex-col h-screen bg-gray-50 transition-all duration-300 ${
+    <div className={`flex flex-col h-screen bg-transparent transition-all duration-300 ${
       isSidebarOpen ? 'ml-80' : 'ml-0'
     }`}>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="glass border-b border-cream-200 px-6 py-5 shadow-sm">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold text-gray-900">AI Assistant</h1>
-            <p className="text-sm text-gray-500">Powered by Cloudflare Workers AI</p>
+          <div className="animate-slide-in">
+            <h1 className="text-2xl font-bold text-navy-900 tracking-tight">AI Assistant</h1>
+            <p className="text-sm text-navy-500 font-medium mt-0.5 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+              Powered by Cloudflare Workers AI
+            </p>
           </div>
-          <ConnectionStatus status={status} />
+          <div className="mr-12 animate-fade-in delay-200">
+            <ConnectionStatus status={status} />
+          </div>
         </div>
       </div>
 
@@ -59,12 +64,12 @@ export function ChatInterface({ status, sendMessage, isConnected }: ChatInterfac
       <MessageList messages={messages} isTyping={isTyping} />
 
       {/* Input */}
-      <MessageInput 
+      <MessageInput
         onSendMessage={handleSendMessage}
         disabled={!isConnected}
         placeholder={
-          isConnected 
-            ? "Type a message..." 
+          isConnected
+            ? "Type a message..."
             : "Connecting to server..."
         }
       />

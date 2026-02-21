@@ -9,7 +9,11 @@
   } from './TaskTools';
   import { getWeatherTool } from './WeatherTool';
   import { sendEmailTool } from './EmailTool';
-  import { createCalendarEventTool, updateCalendarEventTool, deleteCalendarEventTool } from './GoogleCalendarTool';
+  import {
+    createCalendarEventTool,
+    updateCalendarEventTool,
+    deleteCalendarEventTool,
+  } from './NangoCalendarTool';
 
   /**
    * All available MCP tools

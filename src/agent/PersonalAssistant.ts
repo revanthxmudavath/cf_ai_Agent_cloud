@@ -7,7 +7,6 @@ import { ConfirmationHandler, createConfirmationHandler } from '../mcp/Confirmat
 
 import { getTool } from '../mcp/tools/index';
 import { ToolContext } from '../types/tools';
-import { ondemandscanning_v1beta1 } from 'googleapis';
 
 
 interface WebSocketSession {
@@ -294,6 +293,39 @@ export class PersonalAssistant extends DurableObject<Env> {
     }
   }
 
+  /**
+   * Validate ISO 8601 date string format
+   * @param dateStr - ISO 8601 date string
+   * @param fieldName - Field name for error messages
+   * @throws Error if format is invalid
+   */
+  private validateIsoDateString(dateStr: string | undefined | null, fieldName: string = 'date'): void {
+    if (dateStr === undefined || dateStr === null) {
+      return; // Allow undefined/null
+    }
+
+    if (typeof dateStr !== 'string') {
+      throw new Error(`${fieldName} must be a string in ISO 8601 format`);
+    }
+
+    // Allow empty strings (treated as null)
+    if (!dateStr.trim()) {
+      return;
+    }
+
+    // Strict ISO 8601 regex
+    const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
+    if (!iso8601Regex.test(dateStr)) {
+      throw new Error(`${fieldName} must be in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ), got: ${dateStr}`);
+    }
+
+    // Validate it's a real date
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      throw new Error(`${fieldName} is not a valid date: ${dateStr}`);
+    }
+  }
+
   // Ensure user exists in database
   private async ensureUser(userId: string): Promise<void> {
     try {
@@ -327,11 +359,21 @@ export class PersonalAssistant extends DurableObject<Env> {
     userId: string,
     title: string,
     description?: string,
-    dueDate?: number,
+    dueDate?: string,  // Now accepts ISO 8601 string
     priority: 'low' | 'medium' | 'high' = 'medium'
   ): Promise<Task> {
     const taskId = crypto.randomUUID();
     const now = Math.floor(Date.now() / 1000);
+
+    // Validate and convert dueDate if provided
+    let dueDateMs: number | undefined = undefined;
+    if (dueDate && dueDate.trim()) {
+      dueDateMs = new Date(dueDate).getTime();
+
+      if (isNaN(dueDateMs)) {
+        throw new Error(`Invalid date format: ${dueDate}. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)`);
+      }
+    }
 
     await this.env.DB.prepare(
       'INSERT INTO tasks (id, user_id, title, description, due_date, priority, completed, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
@@ -340,18 +382,18 @@ export class PersonalAssistant extends DurableObject<Env> {
       userId,
       title,
       description || null,
-      dueDate || null,
+      dueDateMs ?? null,  // Convert undefined to null for database
       priority,
       0,
       now
     ).run();
 
-    return { 
+    return {
       id: taskId,
       userId,
       title,
       description,
-      dueDate,
+      dueDate: dueDateMs,  // Return milliseconds for compatibility
       completed: false,
       priority,
       createdAt: now,
@@ -395,11 +437,11 @@ export class PersonalAssistant extends DurableObject<Env> {
     updates: {
       title?: string;
       description?: string;
-      dueDate?: number;
+      dueDate?: string;  // Now accepts ISO 8601 string
       priority?: 'low' | 'medium' | 'high';
     }
   ): Promise<Task> {
-  
+
     const existing = await this.getTask(userId, taskId);
     if (!existing) {
       throw new Error('Task not found');
@@ -418,7 +460,24 @@ export class PersonalAssistant extends DurableObject<Env> {
     }
     if (updates.dueDate !== undefined) {
       fields.push('due_date = ?');
-      values.push(updates.dueDate || null);
+
+      // Handle null, empty string, and valid ISO 8601 strings
+      if (updates.dueDate === null) {
+        // Explicitly setting to null to clear due date in database
+        values.push(null);
+      } else if (updates.dueDate && updates.dueDate.trim()) {
+        // Convert ISO 8601 string to milliseconds
+        const dueDateMs = new Date(updates.dueDate).getTime();
+
+        if (isNaN(dueDateMs)) {
+          throw new Error(`Invalid date format: ${updates.dueDate}. Use ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)`);
+        }
+
+        values.push(dueDateMs);
+      } else {
+        // Empty string or whitespace → treat as null in database
+        values.push(null);
+      }
     }
     if (updates.priority !== undefined) {
       fields.push('priority = ?');
@@ -647,16 +706,39 @@ private async generateLLMResponse(
 
       const now = new Date();
       const currentDateTime = now.toISOString();
-      const unixTimeStamp = now.getTime();
+      const todayDate = now.toISOString().split('T')[0];
+      const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
 
       const enhancedSystemPrompt = `${DEFAULT_SYSTEM_PROMPT}
 
-      ## Current Date & Time:
-      - Current date/time: ${currentDateTime}
-      - Unix timestamp: ${unixTimeStamp} (milliseconds)
-      - When user says "today", use today's date: ${now.toISOString().split('T')[0]}
-      - When user says "tomorrow", add 24 hours (86400000 milliseconds)
-      - When calculating timestamps, remember they should be in milliseconds for JavaScript Date objects`;
+      ## Current Date & Time Context:
+      - **Current date/time (UTC)**: ${currentDateTime}
+      - **Today's date**: ${todayDate}
+      - **Tomorrow's date**: ${tomorrowDate}
+      - **Current timezone**: UTC (always use UTC with 'Z' suffix)
+
+      ## CRITICAL: Date/Time Format for Tool Parameters
+      **ALWAYS use ISO 8601 format** for all date/time parameters: "YYYY-MM-DDTHH:MM:SSZ"
+
+      ### Examples (based on current time):
+      - "today at 5 PM" → "${todayDate}T17:00:00Z"
+      - "tomorrow at 9 AM" → "${tomorrowDate}T09:00:00Z"
+      - "today at 2:30 PM" → "${todayDate}T14:30:00Z"
+      - "next Monday at 10 AM" → Calculate date, then "YYYY-MM-DDTHH:MM:SSZ"
+
+      ### Important Rules:
+      1. Always include the 'Z' suffix for UTC timezone
+      2. Use 24-hour format (17:00 not 5:00 PM)
+      3. Always include seconds (:00)
+      4. For "today", use: ${todayDate}
+      5. For "tomorrow", use: ${tomorrowDate}
+      6. Double-check the date matches what user requested
+
+      ### Common Mistakes to Avoid:
+      ❌ Don't use timestamps like 1769448000000
+      ❌ Don't mix up months (Feb = 02, not 01)
+      ❌ Don't forget the 'Z' suffix
+      ✅ Always use: "YYYY-MM-DDTHH:MM:SSZ"`;
 
       
       const context = memoryManager.prepareRAGContext(
@@ -847,6 +929,9 @@ private async generateLLMResponse(
     await this.ensureUser(session.userId);
 
     try {
+      // Validate dueDate format if provided
+      this.validateIsoDateString(data.dueDate, 'dueDate');
+
       const task = await this.createTask(
         session.userId,
         data.title,
@@ -857,10 +942,11 @@ private async generateLLMResponse(
 
       if (task.dueDate) {
         try {
-          const reminderTime = task.dueDate - (24 * 60 * 60); 
-          const now = Math.floor(Date.now() / 1000);
+          // Calculate reminder time: 24 hours before due date (in milliseconds)
+          const reminderTime = task.dueDate - (24 * 60 * 60 * 1000);
+          const now = Date.now(); // Current time in milliseconds
 
-          
+          // Only schedule if reminder time is in the future
           if (reminderTime > now) {
             const workflowParams: TaskWorkflowParams = {
               userId: session.userId,
@@ -963,6 +1049,9 @@ private async generateLLMResponse(
       if (!data.taskId) {
         throw new Error('taskId is required');
       }
+
+      // Validate dueDate format if provided
+      this.validateIsoDateString(data.dueDate, 'dueDate');
 
       const task = await this.updateTask(session.userId, data.taskId, {
         title: data.title,

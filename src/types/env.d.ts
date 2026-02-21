@@ -20,10 +20,9 @@ export interface Env {
     OPENWEATHER_API_KEY?: string;
     POSTMARK_API_KEY?: string;
     POSTMARK_FROM_EMAIL?: string;
-    GOOGLE_CLIENT_ID: string;
-    GOOGLE_CLIENT_SECRET: string;
-    GOOGLE_REDIRECT_URI: string;
-    GOOGLE_REFRESH_TOKEN: string;
+    CLERK_SECRET_KEY: string;
+    CLERK_PUBLISHABLE_KEY: string;
+    NANGO_SECRET_KEY: string;
 
     // Code Mode Configuration
     CODE_EXECUTION_TIMEOUT?: string;
