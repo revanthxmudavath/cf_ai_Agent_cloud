@@ -9,6 +9,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import type { WSMessage, Message } from './types/index';
 import { useTasks } from './hooks/useTasks';
 import { SettingsPanel } from './components/SettingsPanel';
+import { useTimezone } from './hooks/useTimezone';
 
 
 function AuthenticatedApp() {
@@ -23,6 +24,9 @@ const setIsTyping = useAppStore((state) => state.setIsTyping);
 const setPendingConfirmation = useAppStore((state) => state.setPendingConfirmation);
 
 const { fetchTasks } = useTasks(userId);
+
+// Auto-detect and 
+useTimezone();
 
 useEffect(() => {
   async function initializeUser() {

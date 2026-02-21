@@ -37,6 +37,28 @@ const result = await c.env.DB.prepare(
 return c.json(result);
 });
 
+// Update user timezone
+app.post('/api/me/timezone', async (c) => {
+const auth = c.get('auth');
+const { timezone } = await c.req.json();
+
+if (!timezone || typeof timezone !== 'string') {
+    return c.json({ error: 'Invalid timezone' }, 400);
+}
+
+try {
+    await c.env.DB.prepare(
+        'UPDATE users SET timezone = ?, updated_at = ? WHERE id = ?'
+    ).bind(timezone, Math.floor(Date.now() / 1000), auth.userId).run();
+
+    console.log(`[API] Updated timezone for user ${auth.userId}: ${timezone}`);
+    return c.json({ success: true, timezone });
+} catch (error) {
+    console.error('[API] Error updating timezone:', error);
+    return c.json({ error: 'Failed to update timezone' }, 500);
+}
+});
+
 // get user tasks 
 app.get('/api/tasks', async (c) => {
 const auth = c.get('auth');

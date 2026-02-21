@@ -24,7 +24,7 @@ export interface ToolResult {
 
 // Task schemas
 
-// ISO 8601 datetime string validator (strict format validation)
+// ISO 8601 datetime string validator (accepts both with/without milliseconds)
 const isoDateTimeSchema = z.string().refine(
     (val) => {
         // Strict ISO 8601 regex: YYYY-MM-DDTHH:MM:SS.sssZ or YYYY-MM-DDTHH:MM:SSZ
@@ -34,9 +34,9 @@ const isoDateTimeSchema = z.string().refine(
             return false;
         }
 
-        // Also verify it's a valid date (catches cases like 2026-02-30)
+        // Verify it's a valid date (catches cases like 2026-02-30)
         const date = new Date(val);
-        return !isNaN(date.getTime()) && date.toISOString() === val;
+        return !isNaN(date.getTime());
     },
     { message: 'Must be a valid ISO 8601 datetime string (e.g., "2026-02-20T17:00:00Z" or "2026-02-20T17:00:00.123Z")' }
 ).optional();
@@ -47,7 +47,7 @@ const requiredIsoDateTimeSchema = z.string().refine(
         const iso8601Regex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/;
         if (!iso8601Regex.test(val)) return false;
         const date = new Date(val);
-        return !isNaN(date.getTime()) && date.toISOString() === val;
+        return !isNaN(date.getTime());
     },
     { message: 'Must be a valid ISO 8601 datetime string (e.g., "2026-02-20T17:00:00Z")' }
 );

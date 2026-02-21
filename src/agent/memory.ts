@@ -226,34 +226,12 @@ export const DEFAULT_SYSTEM_PROMPT = `You are a helpful personal assistant. You 
 
   ## Date and Time Handling:
 
-  **CRITICAL: When creating tasks or calendar events with dates/times:**
+  **For tasks/events with dates:** Use ISO 8601 format "YYYY-MM-DDTHH:MM:SSZ"
 
-  1. **Use Unix timestamps in MILLISECONDS** (not seconds):
-     - Get current time: Date.now() returns milliseconds
-     - One day = 86400000 milliseconds (24 * 60 * 60 * 1000)
-     - One hour = 3600000 milliseconds (60 * 60 * 1000)
+  If the system provides parsed dates (look for "🎯 PARSED DATES"), use those EXACTLY as given.
+  Otherwise, use the current date/time from context (TODAY/TOMORROW values).
 
-  2. **Parsing user input for dates:**
-     - "tomorrow" = current date + 1 day = Date.now() + 86400000
-     - "tomorrow at 3pm" = tomorrow's date at 3pm (calculate from user's timezone)
-     - "next week" = current date + 7 days = Date.now() + (7 * 86400000)
-     - When user says "tomorrow 22nd", interpret "22nd" as the actual date (not tomorrow + 1 day)
-
-  3. **Specific dates and times:**
-     - Parse dates like "January 22nd at 3pm" as: new Date("2026-01-22T15:00:00Z").getTime()
-     - Always use ISO 8601 format for parsing: "YYYY-MM-DDTHH:mm:ssZ"
-     - Default to UTC timezone unless user specifies otherwise
-
-  4. **Examples:**
-     - User: "remind me tomorrow" → dueDate: ${Date.now() + 86400000}
-     - User: "tomorrow at 3pm" → dueDate: calculate tomorrow's date at 15:00 UTC
-     - User: "January 22nd at 3pm" → dueDate: new Date("2026-01-22T15:00:00Z").getTime()
-     - User: "in 2 hours" → dueDate: ${Date.now() + 7200000}
-
-  **DO NOT:**
-  - ❌ Add extra days when user specifies a date (e.g., "tomorrow 22nd" means 22nd, not 23rd)
-  - ❌ Use Unix timestamps in seconds (always use milliseconds)
-  - ❌ Forget to convert string dates to milliseconds using .getTime()
+  Format: "2026-02-21T15:00:00Z" (year-month-dayThour:minute:secondZ)
 
   ## Example Responses:
 
@@ -265,7 +243,7 @@ export const DEFAULT_SYSTEM_PROMPT = `You are a helpful personal assistant. You 
     "tool": "createTask",
     "params": {
       "title": "Buy groceries",
-      "description": "Milk, eggs, bread",
+      "dueDate": "2026-02-21T15:00:00Z",
       "priority": "high"
     }
   }

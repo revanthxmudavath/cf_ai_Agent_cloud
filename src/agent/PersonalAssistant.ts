@@ -7,6 +7,8 @@ import { ConfirmationHandler, createConfirmationHandler } from '../mcp/Confirmat
 
 import { getTool } from '../mcp/tools/index';
 import { ToolContext } from '../types/tools';
+import { DateParser } from '../utils/DateParser';
+import { DateCorrector } from '../utils/DateCorrector';
 
 
 interface WebSocketSession {
@@ -28,11 +30,15 @@ export class PersonalAssistant extends DurableObject<Env> {
   private vectorize: VectorizeManager;
   private confirmationHandler: ConfirmationHandler;
   private rateLimits: Map<string, RateLimitState>; // userId -> rate limit state
+  private dateParser: DateParser;
+  private dateCorrector: DateCorrector;
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     this.vectorize = new VectorizeManager(env);
     this.confirmationHandler = createConfirmationHandler(60000);
+    this.dateParser = new DateParser();
+    this.dateCorrector = new DateCorrector();
 
     this.sessions = new Map();
     this.rateLimits = new Map();
@@ -326,6 +332,7 @@ export class PersonalAssistant extends DurableObject<Env> {
     }
   }
 
+
   // Ensure user exists in database
   private async ensureUser(userId: string): Promise<void> {
     try {
@@ -349,6 +356,20 @@ export class PersonalAssistant extends DurableObject<Env> {
     } catch (error) {
       console.error('Error ensuring user exists:', error);
 
+    }
+  }
+
+  // Get user's timezone from database
+  private async getUserTimezone(userId: string): Promise<string> {
+    try {
+      const user = await this.env.DB.prepare(
+        'SELECT timezone FROM users WHERE id = ?'
+      ).bind(userId).first();
+
+      return (user?.timezone as string) || 'UTC';
+    } catch (error) {
+      console.error('[PersonalAssistant] Error fetching user timezone:', error);
+      return 'UTC';
     }
   }
 
@@ -598,22 +619,15 @@ private async generateLLMResponse(
 
     try {
       const now = new Date();
-      const currentDateTime = now.toISOString();
-      const unixTimeStamp = now.getTime();
+      const todayDate = now.toISOString().split('T')[0];
+      const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
 
-      const enhancedSystemPrompt = `${DEFAULT_SYSTEM_PROMPT}
+      const enhancedSystemPrompt = `## Current Date Context
+TODAY: ${todayDate}
+TOMORROW: ${tomorrowDate}
+Current time (UTC): ${now.toISOString()}
 
-      ## Current Date & Time:
-    - Current date/time: ${currentDateTime}
-    - Unix timestamp: ${unixTimeStamp} (milliseconds)
-    - When user says "today", use today's date: ${now.toISOString().split('T')[0]}
-    - When user says "tomorrow", add 24 hours (86400000 milliseconds)
-    - When calculating timestamps, remember they should be in milliseconds for JavaScript Date objects
-
-    Example calculations:
-    - "tomorrow at 2pm" = calculate tomorrow's date, set time to 14:00, convert to timestamp
-    - "next Monday" = find next Monday from today, convert to timestamp
-    - "in 3 days at 10am" = add 3 days to today, set time to 10:00, convert to timestamp`;
+${DEFAULT_SYSTEM_PROMPT}`;
 
       const context = memoryManager.buildContext(conversationHistory, {
         maxTokens: 3500,
@@ -676,7 +690,8 @@ private async generateLLMResponse(
   private async generateLLMResponseWithRAG(
     userId: string,
     userMessage: string,
-    conversationHistory: Message[]
+    conversationHistory: Message[],
+    parsedDates: any[] = []  // Parsed dates from DateParser
   ): Promise<string> {
 
     try {
@@ -705,40 +720,18 @@ private async generateLLMResponse(
       console.log(`[RAG] Found ${retrievedContext.length} relevant items`);
 
       const now = new Date();
-      const currentDateTime = now.toISOString();
       const todayDate = now.toISOString().split('T')[0];
       const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
 
-      const enhancedSystemPrompt = `${DEFAULT_SYSTEM_PROMPT}
+      const enhancedSystemPrompt = 
+      `## Current Date Context
+      TODAY: ${todayDate}
+      TOMORROW: ${tomorrowDate}
+      Current time (UTC): ${now.toISOString()}
 
-      ## Current Date & Time Context:
-      - **Current date/time (UTC)**: ${currentDateTime}
-      - **Today's date**: ${todayDate}
-      - **Tomorrow's date**: ${tomorrowDate}
-      - **Current timezone**: UTC (always use UTC with 'Z' suffix)
+      ${parsedDates.length > 0 ? this.dateParser.buildDateContext(parsedDates) : ''}
 
-      ## CRITICAL: Date/Time Format for Tool Parameters
-      **ALWAYS use ISO 8601 format** for all date/time parameters: "YYYY-MM-DDTHH:MM:SSZ"
-
-      ### Examples (based on current time):
-      - "today at 5 PM" → "${todayDate}T17:00:00Z"
-      - "tomorrow at 9 AM" → "${tomorrowDate}T09:00:00Z"
-      - "today at 2:30 PM" → "${todayDate}T14:30:00Z"
-      - "next Monday at 10 AM" → Calculate date, then "YYYY-MM-DDTHH:MM:SSZ"
-
-      ### Important Rules:
-      1. Always include the 'Z' suffix for UTC timezone
-      2. Use 24-hour format (17:00 not 5:00 PM)
-      3. Always include seconds (:00)
-      4. For "today", use: ${todayDate}
-      5. For "tomorrow", use: ${tomorrowDate}
-      6. Double-check the date matches what user requested
-
-      ### Common Mistakes to Avoid:
-      ❌ Don't use timestamps like 1769448000000
-      ❌ Don't mix up months (Feb = 02, not 01)
-      ❌ Don't forget the 'Z' suffix
-      ✅ Always use: "YYYY-MM-DDTHH:MM:SSZ"`;
+      ${DEFAULT_SYSTEM_PROMPT}`;
 
       
       const context = memoryManager.prepareRAGContext(
@@ -816,16 +809,44 @@ private async generateLLMResponse(
       'conversation'
     );
 
+    // 🎯 PARSE DATES from user message (with timezone support)
+    const userTimezone = await this.getUserTimezone(session.userId);
+    this.dateParser.setTimezone(userTimezone);
+
+    const parsedDates = this.dateParser.parse(content);
+    if (parsedDates.length > 0) {
+      console.log(`[DATE PARSER] 🎯 Detected date phrases (timezone: ${userTimezone}):`);
+      console.log(this.dateParser.formatParsedDates(parsedDates));
+    } else {
+      console.log('[DATE PARSER] No date phrases detected in message');
+    }
+
     const responseContent = await this.generateLLMResponseWithRAG(
       session.userId,
       content,
-      this.state.conversationHistory
+      this.state.conversationHistory,
+      parsedDates  // Pass parsed dates to LLM
     );
 
-    const toolCalls = this.extractJSONBlocks(responseContent);
+    let toolCalls = this.extractJSONBlocks(responseContent);
 
     if (toolCalls.length > 0) {
       console.log(`[PersonalAssistant] Detected ${toolCalls.length} tool call(s) in response`);
+
+      // Correct any incorrect dates in tool calls
+      const { toolCalls: correctedToolCalls, report } = this.dateCorrector.correctToolCallDates(
+        toolCalls,
+        parsedDates
+      );
+
+      if (report.corrected) {
+        console.log(`[DATE CORRECTION] 🔧 Fixed ${report.changes.length} date(s):`);
+        report.changes.forEach(change => {
+          console.log(`  - ${change.toolName}.${change.field}: ${change.oldValue} → ${change.newValue}`);
+        });
+      }
+
+      toolCalls = correctedToolCalls;
 
       const toolResultMessage: string[] = [];
 
@@ -861,7 +882,8 @@ private async generateLLMResponse(
     const followUpResponse = await this.generateLLMResponseWithRAG(
       session.userId,
       content,
-      this.state.conversationHistory 
+      this.state.conversationHistory,
+      parsedDates  // Pass parsed dates to follow-up LLM call
     );
 
     const assistantMessage: Message = {
