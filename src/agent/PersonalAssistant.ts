@@ -7,7 +7,7 @@ import { ConfirmationHandler, createConfirmationHandler } from '../mcp/Confirmat
 
 import { getTool } from '../mcp/tools/index';
 import { ToolContext } from '../types/tools';
-import { DateParser } from '../utils/DateParser';
+import { DateParser, ParsedDate } from '../utils/DateParser';
 import { DateCorrector } from '../utils/DateCorrector';
 
 
@@ -15,6 +15,8 @@ interface WebSocketSession {
   webSocket: WebSocket;
   userId: string;
   connectedAt: number;
+  lastParsedDates?: ParsedDate[];  // Store parsed dates for follow-up messages
+  lastParsedTimestamp?: number;     // When the dates were parsed
 }
 
 interface RateLimitState {
@@ -813,12 +815,25 @@ ${DEFAULT_SYSTEM_PROMPT}`;
     const userTimezone = await this.getUserTimezone(session.userId);
     this.dateParser.setTimezone(userTimezone);
 
-    const parsedDates = this.dateParser.parse(content);
+    let parsedDates = this.dateParser.parse(content);
+    const now = Date.now();
+
     if (parsedDates.length > 0) {
+      // New dates detected - store them for follow-up messages
       console.log(`[DATE PARSER] 🎯 Detected date phrases (timezone: ${userTimezone}):`);
       console.log(this.dateParser.formatParsedDates(parsedDates));
+      session.lastParsedDates = parsedDates;
+      session.lastParsedTimestamp = now;
     } else {
-      console.log('[DATE PARSER] No date phrases detected in message');
+      // No dates in current message - check if we have recent parsed dates from previous message
+      const twoMinutesAgo = now - (2 * 60 * 1000);
+      if (session.lastParsedDates && session.lastParsedTimestamp && session.lastParsedTimestamp > twoMinutesAgo) {
+        console.log(`[DATE PARSER] No dates in current message, reusing dates from ${Math.round((now - session.lastParsedTimestamp) / 1000)}s ago`);
+        console.log(this.dateParser.formatParsedDates(session.lastParsedDates));
+        parsedDates = session.lastParsedDates;
+      } else {
+        console.log('[DATE PARSER] No date phrases detected in message');
+      }
     }
 
     const responseContent = await this.generateLLMResponseWithRAG(
