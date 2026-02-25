@@ -74,10 +74,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
                   }
               }
 
-              // Build WebSocket URL with token (not userId)
-              const wsUrl = token
-                  ? `${url}?token=${encodeURIComponent(token)}`
-                  : `${url}?userId=${encodeURIComponent(userId)}`; // Fallback for legacy
+              // Build WebSocket URL with token
+              if (!token) {
+                  console.error('[WebSocket] No authentication token available, cannot connect');
+                  setStatus('error');
+                  return;
+              }
+              const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
 
               console.log('[WebSocket] Connecting...');
 
