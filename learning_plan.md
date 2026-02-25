@@ -1,7 +1,7 @@
 # LLM Fine-Tuning Learning Plan
 **Date:** 2026-02-24
 **Project:** AI Personal Assistant (Cloudflare Workers)
-**Goal:** Fine-tune Llama 3.2 3B with QLoRA → deploy LoRA adapter to Cloudflare Workers AI
+**Goal:** Fine-tune Mistral 7B Instruct v0.2 with QLoRA → deploy LoRA adapter to Cloudflare Workers AI
 **Reviewed by:** 3 parallel agents (ML Pedagogy, Cloudflare Technical, Dataset Strategy)
 
 ---
@@ -20,19 +20,49 @@
 
 ## Architecture Decision
 
-**Base model for training AND deployment:** `@cf/meta/llama-3.2-3b-instruct`
+**Base model for training AND deployment:** `@cf/mistral/mistral-7b-instruct-v0.2-lora`
 
-> **CRITICAL**: The base model used in Colab training and the model string passed to `env.AI.run()` on Cloudflare MUST be identical. A LoRA adapter trained on a 3B model is architecturally incompatible with an 8B model — the weight dimensions are different. Do not mix these.
+> **CRITICAL**: The base model used in Colab training and the model string passed to `env.AI.run()` on Cloudflare MUST be architecturally identical. A LoRA adapter is tied to the exact weight dimensions of the base model it was trained on. Do not mix models.
 
-**Why 3B over 8B for this task:**
-- Llama 3.2 3B fits on a free Colab T4 (7GB VRAM) and very fast on Colab Pro A100
-- 3B is sufficient for a closed 10-tool JSON-output task (format learning, not general reasoning)
-- Faster iteration — training runs complete in under an hour on A100
-- Lower inference cost on Cloudflare (fewer Neurons per request)
+### Confirmed LoRA-Compatible Models on Cloudflare (as of Feb 2026)
+
+| Cloudflare Model ID | Params | Context | LoRA | Notes |
+|---|---|---|---|---|
+| `@cf/mistral/mistral-7b-instruct-v0.2-lora` | 7B | **15,000 tokens** | Dedicated variant | **Recommended** |
+| `@cf/google/gemma-7b-it-lora` | 7B | **3,500 tokens** | Dedicated variant | Context too small |
+| `@cf/google/gemma-2b-it-lora` | 2B | Small | Dedicated variant | Too small for reliable JSON |
+| `@cf/meta-llama/llama-2-7b-chat-hf-lora` | 7B | — | Dedicated variant | Outdated architecture |
+| `@cf/google/gemma-3-12b-it` | 12B | 80,000 tokens | Yes | Future upgrade path |
+| `@cf/mistral/mistral-7b-instruct-v0.1` | 7B | — | Yes | Older version — use v0.2 |
+| `@cf/google/gemma-7b-it` | 7B | — | Yes | Use -lora variant instead |
+| `@cf/qwen/qwq-32b` | 32B | — | Yes | Reasoning/CoT model — wrong format for our use |
+| `@cf/meta/llama-3.2-11b-vision-instruct` | 11B | — | Yes | Vision model — unnecessary overhead |
+| `@cf/meta/llama-guard-3-8b` | 8B | — | — | Safety classifier — not for general use |
+
+### Why Mistral 7B v0.2 is the Right Choice
+
+**Context window is the deciding factor:**
+- `@cf/google/gemma-7b-it-lora` has only **3,500 tokens** of context
+- Your system prompt (`generateToolDocs()` in `memory.ts`) + 10 tool definitions + conversation history easily exceeds 3,500 tokens — the Gemma model would overflow on nearly every real request
+- Mistral v0.2 provides **15,000 tokens** — plenty of headroom for the system prompt, history, and response
+
+**Function calling ecosystem:**
+- Mistral 7B is the architecture most public function-calling datasets were originally built for (Hermes, Glaive, Trelis datasets all target Mistral-compatible chat templates)
+- Multiple pre-existing fine-tuned function-calling Mistral models to learn from: `Trelis/Mistral-7B-Instruct-v0.2-function-calling-v3`, `NousResearch/Hermes-2-Pro-Mistral-7B`
+- Unsloth has a pre-quantized 4-bit variant: `unsloth/mistral-7b-instruct-v0.2-bnb-4bit`
+
+**Dedicated LoRA variant:**
+- The `-lora` suffix means Cloudflare has pre-configured this model specifically for LoRA adapter inference
+- Most stable option vs. the generic non-lora variants
+
+**Gemma 3 12B as future upgrade path:**
+- 80,000 token context and 12B params makes it the most capable option on the list
+- Explicitly priced ($0.35/M input, $0.56/M output) — suitable after validating the approach with the free Mistral model
+- Upgrade to it if you need stronger reasoning once Mistral is working
 
 **Why NOT the current 70B production model:**
-- `@cf/meta/llama-3.3-70b-instruct-fp8-fast` is a quantized (fp8) model — Cloudflare explicitly excludes quantized models from LoRA support
-- You cannot apply a LoRA adapter to this model on Cloudflare
+- `@cf/meta/llama-3.3-70b-instruct-fp8-fast` is a quantized (fp8) model — Cloudflare explicitly excludes all quantized models from LoRA support
+- You cannot apply a LoRA adapter to it regardless of rank or file size
 
 ---
 
@@ -40,7 +70,7 @@
 
 Before writing a single line of training code, verify:
 
-1. Open [Cloudflare Workers AI models list with LoRA filter](https://developers.cloudflare.com/workers-ai/models/?capabilities=LoRA) — confirm `@cf/meta/llama-3.2-3b-instruct` appears
+1. Open [Cloudflare Workers AI models list with LoRA filter](https://developers.cloudflare.com/workers-ai/models/?capabilities=LoRA) — confirm `@cf/mistral/mistral-7b-instruct-v0.2-lora` appears
 2. Note the current rank limit: **r ≤ 32** (updated in 2025 from the old r ≤ 8 limit)
 3. Note the file size limit: **300MB** per adapter
 4. Note: **fine-tunes cannot be updated after upload** — you must create a new one to change anything
@@ -58,7 +88,7 @@ Before writing a single line of training code, verify:
 |---|---|---|
 | Day 1 — after first notebook run | [LoRA paper](https://arxiv.org/abs/2106.09685) abstract + Section 4 only | You've seen adapter files appear — now understand what's in them |
 | Day 2 — before dataset swap | [Unsloth chat templates docs](https://unsloth.ai/docs/basics/chat-templates) | You NEED this before swapping datasets or training breaks silently |
-| Day 2 — before dataset swap | [HuggingFace chat templating docs](https://huggingface.co/docs/transformers/chat_templating) | Llama 3.2 uses `<\|eot_id\|>` — format must match exactly |
+| Day 2 — before dataset swap | [HuggingFace chat templating docs](https://huggingface.co/docs/transformers/chat_templating) | Mistral uses `[INST]...[/INST]` — format must match exactly |
 | Day 3 — after xLAM dataset exploration | [QLoRA paper](https://arxiv.org/abs/2305.14314) abstract + Section 2 | Now the quantization details have concrete context |
 | Day 5 — before custom training | [philschmid 2025 SFT guide](https://www.philschmid.de/fine-tune-llms-in-2025) | Full overview of current stack (QLoRA, Flash Attention, Liger Kernels) |
 | Day 8 — before evaluating loss curves | [HuggingFace LLM Course Chapter 3 — Learning Curves](https://huggingface.co/learn/llm-course/en/chapter3/5) | Framework for diagnosing train/eval divergence |
@@ -82,31 +112,35 @@ Datasets        Load datasets from HuggingFace Hub
 
 ### Day 1 Action
 
-Run the Unsloth Llama 3.2 3B Instruct notebook on Colab Pro:
-→ [Unsloth Llama 3.2 3B Conversational Colab](https://colab.research.google.com/github/unslothai/unsloth/blob/main/nb/Llama_3.2_3B_Instruct_Conversational.ipynb)
+Run the Unsloth Mistral 7B notebook on Colab Pro:
+→ [Unsloth Notebooks catalog — find Mistral 7B](https://unsloth.ai/docs/get-started/unsloth-notebooks)
+→ Direct HuggingFace model: [`unsloth/mistral-7b-instruct-v0.2-bnb-4bit`](https://huggingface.co/unsloth/mistral-7b-instruct-v0.2-bnb-4bit)
+
+**VRAM requirements for Mistral 7B:** ~6–8GB (4-bit QLoRA) — fits comfortably on free T4 and runs fast on A100.
 
 **What to observe while it runs:**
 - Loss curve — should drop fast in first 50 steps then plateau
 - `train_loss` vs `eval_loss` — a growing gap = overfitting
-- Tokens/sec — A100 should show 600-900 tok/sec with Unsloth
+- Tokens/sec — A100 should show 500–800 tok/sec with Unsloth on a 7B model
 - Sample outputs at checkpoints — do they look like coherent text?
 
 ### EOS / PAD Token Warning
 
-Llama 3.2 uses `<|eot_id|>` as the turn-end token and `<|end_of_text|>` as the true EOS. If PAD token equals EOS token, training masks out stop tokens and the model never learns to stop generating.
+Mistral uses `</s>` as its EOS token. Unsloth often sets the PAD token to EOS by default, which causes the model to never learn the stop signal.
 
-Unsloth sets this correctly by default. **If you ever customize the tokenizer, verify:**
+Unsloth handles this automatically in most configurations. **If you ever customize the tokenizer, verify:**
 ```python
 assert tokenizer.pad_token != tokenizer.eos_token
+# For Mistral: pad_token should be set to a padding token, NOT </s>
 ```
 
 ### Day 2–3: Dataset Swap
 
-Swap the training dataset from `FineTome-100k` to `Salesforce/xlam-function-calling-60k`.
+Swap the training dataset from default to `Salesforce/xlam-function-calling-60k`.
 
 **Read the xLAM cookbook FIRST:** [HuggingFace xLAM function calling cookbook](https://huggingface.co/learn/cookbook/function_calling_fine_tuning_llms_on_xlam)
 
-Budget 1 full 2-hour session just for the format conversion — xLAM uses a completely different schema than the ShareGPT format and Llama 3.2's chat template. This is not a quick swap.
+Budget 1 full 2-hour session just for the format conversion — xLAM uses a completely different schema than the ShareGPT format and Mistral's `[INST]...[/INST]` chat template. This is not a quick swap.
 
 ---
 
@@ -247,9 +281,9 @@ from unsloth import FastLanguageModel
 from trl import SFTTrainer, TrainingArguments
 
 model, tokenizer = FastLanguageModel.from_pretrained(
-    model_name="unsloth/Llama-3.2-3B-Instruct",
-    max_seq_length=2048,
-    load_in_4bit=True,  # QLoRA
+    model_name="unsloth/mistral-7b-instruct-v0.2-bnb-4bit",  # Pre-quantized 4-bit — faster download
+    max_seq_length=4096,     # Mistral supports much more; 4096 is a safe training window
+    load_in_4bit=True,       # QLoRA
 )
 
 model = FastLanguageModel.get_peft_model(
@@ -260,12 +294,17 @@ model = FastLanguageModel.get_peft_model(
     lora_dropout=0.05,
 )
 
+# Apply Mistral chat template
+from unsloth.chat_templates import get_chat_template
+tokenizer = get_chat_template(tokenizer, chat_template="mistral")
+
 # CRITICAL: Train only on assistant responses, not user/system tokens
+# Mistral uses [INST] / [/INST] delimiters
 from unsloth.chat_templates import train_on_responses_only
 trainer = train_on_responses_only(
     trainer,
-    instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
-    response_part="<|start_header_id|>assistant<|end_header_id|>\n\n",
+    instruction_part="[INST]",
+    response_part="[/INST]",
 )
 ```
 
@@ -337,7 +376,7 @@ Add ONE field — `model_type`. Do not remove any fields generated by Unsloth/PE
 
 ```json
 {
-  "model_type": "llama",
+  "model_type": "mistral",
   "peft_type": "LORA",
   "task_type": "CAUSAL_LM",
   "r": 16,
@@ -347,7 +386,7 @@ Add ONE field — `model_type`. Do not remove any fields generated by Unsloth/PE
 }
 ```
 
-`model_type` must be one of: `"mistral"`, `"gemma"`, or `"llama"`.
+`model_type` must be one of: `"mistral"`, `"gemma"`, or `"llama"`. For Mistral 7B use `"mistral"`.
 
 ### Step 3: Upload via Wrangler (Corrected Syntax)
 
@@ -358,7 +397,7 @@ The correct command is a **single step** — creation and upload together:
 #   adapter_model.safetensors
 #   adapter_config.json
 
-npx wrangler ai finetune create @cf/meta/llama-3.2-3b-instruct my-assistant-lora ./my-adapter/
+npx wrangler ai finetune create @cf/mistral/mistral-7b-instruct-v0.2-lora my-assistant-lora ./my-adapter/
 ```
 
 There is NO separate `wrangler ai finetune upload` subcommand. The command above handles both creation and upload from the specified folder path.
@@ -395,7 +434,7 @@ const model = this.env.LLM_MODEL || '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 const llmPromise = this.env.AI.run(modelKey, { messages, max_tokens, temperature });
 
 // TO (fine-tuned):
-const model = '@cf/meta/llama-3.2-3b-instruct';  // Must match training base model exactly
+const model = '@cf/mistral/mistral-7b-instruct-v0.2-lora';  // Must match training base model exactly
 const llmPromise = this.env.AI.run(model as any, {
   messages,
   max_tokens: maxTokens,
@@ -413,12 +452,12 @@ After uploading, **do not assume the adapter is loading**. Verify it's actually 
 
 ```typescript
 // Test call WITHOUT adapter (base model)
-const baseResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+const baseResponse = await env.AI.run('@cf/mistral/mistral-7b-instruct-v0.2-lora' as any, {
   messages: [{ role: "user", content: "Remind me to call John tomorrow" }]
 });
 
 // Test call WITH adapter
-const loraResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
+const loraResponse = await env.AI.run('@cf/mistral/mistral-7b-instruct-v0.2-lora' as any, {
   messages: [{ role: "user", content: "Remind me to call John tomorrow" }],
   lora: 'my-assistant-lora'
 });
@@ -432,7 +471,8 @@ const loraResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
 - Fine-tunes **cannot be updated after upload** — to change an adapter, create a new finetune
 - **100 adapter limit per account** (clean up unused experiments)
 - LoRA upload is **free during open beta** — inference billed via Neurons pricing (same as standard AI.run)
-- Switching from 70B to 3B will significantly reduce Neurons consumption per request
+- Switching from 70B to 7B will significantly reduce Neurons consumption per request
+- Context window is 15,000 tokens — more than sufficient for your full system prompt + history
 
 ---
 
@@ -461,13 +501,14 @@ const loraResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
 ### Week 4 (Days 22–28): Deploy + Production Validation
 - **Day 22**: Export adapter-only, edit adapter_config.json, upload via Wrangler
 - **Day 23**: Deployment verification (base vs LoRA comparison test)
-- **Days 24–25**: A/B test in staging: run 10 prompts against both 70B base and 3B fine-tuned, compare JSON validity and tool selection accuracy
+- **Days 24–25**: A/B test in staging: run 10 prompts against both 70B base and 7B Mistral fine-tuned, compare JSON validity and tool selection accuracy
 - **Days 26–28**: Production switch, monitor first 48h, log any regressions
 
 ### Week 5+ (Ongoing): Iteration
 - Add more contrastive examples for any tools that failed in production
 - Expand multi-turn dataset to 200+
-- Measure latency improvement vs original 70B model (target: <2s vs 4–8s)
+- Measure latency improvement vs original 70B model (target: <2s vs 4–8s for 70B)
+- Consider upgrading to `@cf/google/gemma-3-12b-it` (80K context, 12B params) if stronger reasoning is needed
 
 ---
 
@@ -486,10 +527,14 @@ const loraResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
 | Resource | Link |
 |---|---|
 | Unsloth GitHub | [github.com/unslothai/unsloth](https://github.com/unslothai/unsloth) |
+| Unsloth Mistral 7B 4-bit model | [unsloth/mistral-7b-instruct-v0.2-bnb-4bit](https://huggingface.co/unsloth/mistral-7b-instruct-v0.2-bnb-4bit) |
+| Unsloth notebook catalog | [unsloth.ai/docs/get-started/unsloth-notebooks](https://unsloth.ai/docs/get-started/unsloth-notebooks) |
 | Unsloth chat templates | [unsloth.ai/docs/basics/chat-templates](https://unsloth.ai/docs/basics/chat-templates) |
 | HF chat templating docs | [huggingface.co/docs/transformers/chat_templating](https://huggingface.co/docs/transformers/chat_templating) |
 | HuggingFace xLAM cookbook | [HF Cookbook: xLAM fine-tuning](https://huggingface.co/learn/cookbook/function_calling_fine_tuning_llms_on_xlam) |
 | Microsoft SLM function calling guide | [GitHub: microsoft/slm-finetuning-for-function-calling](https://github.com/microsoft/slm-finetuning-for-function-calling) |
+| Hermes 2 Pro Mistral 7B (reference model) | [NousResearch/Hermes-2-Pro-Mistral-7B](https://huggingface.co/NousResearch/Hermes-2-Pro-Mistral-7B) |
+| Mistral function calling fine-tune (reference) | [Trelis/Mistral-7B-Instruct-v0.2-function-calling-v3](https://huggingface.co/Trelis/Mistral-7B-Instruct-v0.2-function-calling-v3) |
 
 ### Datasets
 | Dataset | Format | Priority | Link |
@@ -531,7 +576,7 @@ const loraResponse = await env.AI.run('@cf/meta/llama-3.2-3b-instruct', {
 | Wrong base model for deployment | Adapter uploads but output is garbage | Use exact same model string for training AND `env.AI.run()` |
 | Merging adapter before upload | File too large; Cloudflare rejects | Use `save_pretrained()` not merged methods |
 | Wrangler upload syntax wrong | Command not found error | Use `npx wrangler ai finetune create <model> <name> <folder>` |
-| Missing `model_type` in config | Cloudflare rejects upload | Always add `"model_type": "llama"` to adapter_config.json |
+| Missing `model_type` in config | Cloudflare rejects upload | Always add `"model_type": "mistral"` to adapter_config.json |
 | No negative examples | Model calls tools for everything | Include 10–15% "no tool needed" examples |
 | No train/val split | Can't detect overfitting | Reserve 15% holdout BEFORE building training set |
 | temperature != 0 during eval | Stochastic JSON, can't diagnose | Always eval with `temperature=0, do_sample=False` |
