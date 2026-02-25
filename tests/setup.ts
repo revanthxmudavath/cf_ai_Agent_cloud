@@ -61,7 +61,7 @@ return {
     AI: {} as any,
     DB: {} as any,
     VECTORIZE: {} as any,
-    PERSONAL_ASSISTANT: {} as any,
+    AGENT: {} as any,
     TASK_WORKFLOW: {} as any,
     LLM_MODEL: '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
     LLM_MAX_TOKENS: '500',
@@ -69,7 +69,7 @@ return {
     RAG_ENABLED: 'true',
     RAG_TOP_K: '3',
     OPENWEATHER_API_KEY: 'test-key',
-    POSTMARK_API_TOKEN: 'test-token',
+    POSTMARK_API_KEY: 'test-token',
     POSTMARK_FROM_EMAIL: 'test@example.com',
     ...overrides,
 } as Env;
