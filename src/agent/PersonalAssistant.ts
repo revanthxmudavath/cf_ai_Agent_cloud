@@ -911,12 +911,12 @@ ${DEFAULT_SYSTEM_PROMPT}`;
 
     await this.saveMessageToD1(session.userId, assistantMessage);
 
-    // // Store assistant message embedding (silently fails if Vectorize unavailable in local dev)
-    // await this.vectorize.storeMessageEmbedding(
-    //   session.userId,
-    //   assistantMessage,
-    //   'conversation'
-    // );
+    // Store assistant message embedding (silently fails if Vectorize unavailable in local dev)
+    await this.vectorize.storeMessageEmbedding(
+      session.userId,
+      assistantMessage,
+      'conversation'
+    );
 
     ws.send(JSON.stringify({
       type: 'chat_response',
