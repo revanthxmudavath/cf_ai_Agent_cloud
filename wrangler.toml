@@ -43,6 +43,7 @@ new_sqlite_classes = ["PersonalAssistant"]
 # Environment variables (optional)
 [vars]
 ENVIRONMENT = "development"
+# ALLOWED_ORIGIN = "https://your-production-domain.pages.dev"  # Uncomment and set for production
 CLERK_PUBLISHABLE_KEY="pk_test_bWVycnktamF5LTU3LmNsZXJrLmFjY291bnRzLmRldiQ"
 
 

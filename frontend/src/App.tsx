@@ -35,7 +35,7 @@ useEffect(() => {
       if (!token) return;
 
       // Fetch user profile
-      const response = await fetch('http://localhost:5173/api/me', {
+      const response = await fetch('/api/me', {
         headers: {
           Authorization: `Bearer ${token}`,
         },

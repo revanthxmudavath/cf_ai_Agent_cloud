@@ -9,6 +9,7 @@ export interface Env {
     TASK_WORKFLOW: Workflow<TaskWorkflowParams>;
 
     ENVIRONMENT?: string;
+    ALLOWED_ORIGIN?: string; // Production frontend URL (e.g. https://your-app.pages.dev)
 
     LLM_MODEL?: string;
     LLM_MAX_TOKENS?: string;
