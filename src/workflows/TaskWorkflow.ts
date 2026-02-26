@@ -126,14 +126,14 @@ export class TaskWorkflow extends WorkflowEntrypoint<Env, TaskWorkflowParams> {
                 throw new Error('No due date set for task');
             }
 
-            const reminderTimestamp = dueDate - (24 * 60 * 60)
-            const now = Math.floor(Date.now() / 1000);
+            const reminderTimestamp = dueDate - (24 * 60 * 60 * 1000)
+            const now = Date.now();
 
             return {
                 reminderTimestamp,
                 dueDate,
                 shouldSendNow: reminderTimestamp <= now,
-                timeUntilReminder: Math.max( 0, reminderTimestamp - now)
+                timeUntilReminder: Math.max(0, Math.floor((reminderTimestamp - now) / 1000))
             };
         }
     );
