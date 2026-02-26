@@ -59,6 +59,7 @@ export class DateCorrector {
         const startDates = parsedDates.length > 0 ? [parsedDates[0]] : [];
         const endDates = parsedDates.length > 1 ? [parsedDates[1]] : [];
 
+        let startTimeCorrected = false;
         if (correctedParams.startTime) {
           const correctedStart = this.correctDate(
             correctedParams.startTime,
@@ -76,6 +77,7 @@ export class DateCorrector {
               reason: 'Start time corrected using first parsed date'
             });
             correctedParams.startTime = correctedStart;
+            startTimeCorrected = true;
           }
         }
 
@@ -91,8 +93,9 @@ export class DateCorrector {
             if (!isNaN(startMs)) {
               const derivedEnd = new Date(startMs + 60 * 60 * 1000).toISOString();
               const endMs = new Date(correctedParams.endTime).getTime();
-              // Only override if endTime is invalid or in the past
-              if (isNaN(endMs) || endMs < now - (7 * 24 * 60 * 60 * 1000)) {
+              // Override if endTime is invalid, in the past, OR if startTime was corrected
+              // (LLM derived endTime from its UTC-naive startTime — now inconsistent)
+              if (isNaN(endMs) || endMs < now - (7 * 24 * 60 * 60 * 1000) || startTimeCorrected) {
                 correctedEnd = derivedEnd;
               }
             }

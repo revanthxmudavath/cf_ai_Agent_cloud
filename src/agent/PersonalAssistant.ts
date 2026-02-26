@@ -17,6 +17,7 @@ interface WebSocketSession {
   connectedAt: number;
   lastParsedDates?: ParsedDate[];  // Store parsed dates for follow-up messages
   lastParsedTimestamp?: number;     // When the dates were parsed
+  clientTimezone?: string;          // User's IANA timezone sent on connect (e.g. "America/Chicago")
 }
 
 interface RateLimitState {
@@ -242,6 +243,18 @@ export class PersonalAssistant extends DurableObject<Env> {
         case 'delete_task':
           await this.handleDeleteTask(ws, session, payload.taskId);
           break;
+
+        case 'set_timezone': {
+          const tz = payload?.timezone;
+          if (tz && typeof tz === 'string' && tz.length < 64) {
+            session.clientTimezone = tz;
+            // Persist to DB non-blocking so future sessions (after DO hibernation) also benefit
+            this.env.DB.prepare('UPDATE users SET timezone = ? WHERE id = ?')
+              .bind(tz, session.userId).run().catch(() => {});
+            console.log(`[PersonalAssistant] Timezone set for ${session.userId}: ${tz}`);
+          }
+          break;
+        }
 
         case 'ping':
           ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
@@ -616,13 +629,19 @@ private async loadConversationHistory(userId: string, limit: number = 50): Promi
 private async generateLLMResponse(
   userId: string,
   userMessage: string,
-  conversationHistory: Message[]
+  conversationHistory: Message[],
+  userTimezone: string = 'UTC'
 ): Promise<string> {
 
     try {
       const now = new Date();
-      const todayDate = now.toISOString().split('T')[0];
-      const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+      // Compute today/tomorrow in the user's local timezone so the LLM
+      // says the right day when it answers (e.g. "Feb 25" not "Feb 26")
+      const localFmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: userTimezone, year: 'numeric', month: '2-digit', day: '2-digit'
+      });
+      const todayDate = localFmt.format(now);
+      const tomorrowDate = localFmt.format(new Date(now.getTime() + 86400000));
 
       const enhancedSystemPrompt = `## Current Date Context
 TODAY: ${todayDate}
@@ -693,7 +712,8 @@ ${DEFAULT_SYSTEM_PROMPT}`;
     userId: string,
     userMessage: string,
     conversationHistory: Message[],
-    parsedDates: any[] = []  // Parsed dates from DateParser
+    parsedDates: any[] = [],  // Parsed dates from DateParser
+    userTimezone: string = 'UTC'
   ): Promise<string> {
 
     try {
@@ -701,7 +721,7 @@ ${DEFAULT_SYSTEM_PROMPT}`;
       const rag_enabled = this.env.RAG_ENABLED !== 'false';
       if(!rag_enabled){
         console.log('[RAG] RAG disabled via environment variable');
-        return await this.generateLLMResponse(userId, userMessage, conversationHistory);
+        return await this.generateLLMResponse(userId, userMessage, conversationHistory, userTimezone);
       }
 
       const topK = parseInt(this.env.RAG_TOP_K || '3');
@@ -716,16 +736,19 @@ ${DEFAULT_SYSTEM_PROMPT}`;
 
       if (retrievedContext.length === 0){
         console.log('[RAG] No relevant context found, using standard response');
-        return await this.generateLLMResponse(userId, userMessage, conversationHistory);
+        return await this.generateLLMResponse(userId, userMessage, conversationHistory, userTimezone);
       }
-      
+
       console.log(`[RAG] Found ${retrievedContext.length} relevant items`);
 
       const now = new Date();
-      const todayDate = now.toISOString().split('T')[0];
-      const tomorrowDate = new Date(now.getTime() + 86400000).toISOString().split('T')[0];
+      const localFmt = new Intl.DateTimeFormat('en-CA', {
+        timeZone: userTimezone, year: 'numeric', month: '2-digit', day: '2-digit'
+      });
+      const todayDate = localFmt.format(now);
+      const tomorrowDate = localFmt.format(new Date(now.getTime() + 86400000));
 
-      const enhancedSystemPrompt = 
+      const enhancedSystemPrompt =
       `## Current Date Context
       TODAY: ${todayDate}
       TOMORROW: ${tomorrowDate}
@@ -812,7 +835,8 @@ ${DEFAULT_SYSTEM_PROMPT}`;
     );
 
     // 🎯 PARSE DATES from user message (with timezone support)
-    const userTimezone = await this.getUserTimezone(session.userId);
+    // Prefer session timezone (sent by browser on connect) over DB value
+    const userTimezone = session.clientTimezone ?? await this.getUserTimezone(session.userId);
     this.dateParser.setTimezone(userTimezone);
 
     let parsedDates = this.dateParser.parse(content);
@@ -840,7 +864,8 @@ ${DEFAULT_SYSTEM_PROMPT}`;
       session.userId,
       content,
       this.state.conversationHistory,
-      parsedDates  // Pass parsed dates to LLM
+      parsedDates,   // Pass parsed dates to LLM
+      userTimezone   // Pass user's timezone for correct TODAY/TOMORROW
     );
 
     let toolCalls = this.extractJSONBlocks(responseContent);
@@ -898,7 +923,8 @@ ${DEFAULT_SYSTEM_PROMPT}`;
       session.userId,
       content,
       this.state.conversationHistory,
-      parsedDates  // Pass parsed dates to follow-up LLM call
+      parsedDates,  // Pass parsed dates to follow-up LLM call
+      userTimezone  // Pass user's timezone for correct TODAY/TOMORROW
     );
 
     const assistantMessage: Message = {

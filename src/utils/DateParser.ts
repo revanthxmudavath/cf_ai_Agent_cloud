@@ -6,6 +6,35 @@
 // @ts-ignore - chrono-node has types but TypeScript doesn't resolve them correctly in Cloudflare Workers environment
 import * as chrono from 'chrono-node';
 
+/**
+ * Convert an IANA timezone string to a numeric UTC offset in minutes.
+ * Uses ISO 8601 convention: positive = east (UTC+X), negative = west (UTC-X).
+ * Example: 'America/Caracas' (UTC-4) → -240
+ *
+ * Chrono-node's IANA string handling can fall back to the machine's local
+ * timezone on some environments, causing wrong Date construction. Passing a
+ * numeric offset avoids this entirely.
+ */
+function ianaToChronoOffset(timezone: string, date: Date): number {
+  if (timezone === 'UTC') return 0;
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    }).formatToParts(date);
+    const get = (type: string) => parseInt(parts.find(p => p.type === type)?.value ?? '0');
+    let hour = get('hour');
+    if (hour === 24) hour = 0; // some locales return 24 for midnight
+    const localAsUtcMs = Date.UTC(get('year'), get('month') - 1, get('day'), hour, get('minute'), get('second'));
+    // ISO convention: (local - UTC) / 60000  → positive for east (UTC+X)
+    return (localAsUtcMs - date.getTime()) / 60000;
+  } catch {
+    return 0; // fallback to UTC if timezone string is invalid
+  }
+}
+
 export interface ParsedDate {
   phrase: string;           // Original phrase (e.g., "at 4pm today")
   isoDateTime: string;      // Calculated ISO 8601 (e.g., "2026-02-22T00:00:00Z")
@@ -35,11 +64,16 @@ export class DateParser {
     // Create a custom Chrono configuration
     const customChrono = chrono.casual.clone();
 
+    // Convert IANA timezone to numeric offset for chrono.
+    // chrono-node's IANA handling can fall back to the machine's local timezone
+    // for Date construction on some environments. A numeric offset is always reliable.
+    const tzOffset = ianaToChronoOffset(this.userTimezone, now);
+
     // Parse with user's timezone as reference
     // This tells Chrono: "when user says 4pm, they mean 4pm in THIS timezone"
     const results = customChrono.parse(text, {
       instant: now,
-      timezone: this.userTimezone,  // e.g., "America/Los_Angeles"
+      timezone: tzOffset,  // numeric minutes offset (ISO: positive=east, negative=west)
     });
 
     // Convert Chrono results to our ParsedDate format

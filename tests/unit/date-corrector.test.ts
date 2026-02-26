@@ -190,20 +190,20 @@ describe('DateCorrector - calendar event start/end date separation', () => {
     expect(endTime - startTime).toBe(60 * 60 * 1000); // exactly 1 hour
   });
 
-  it('does not modify valid future endTime when only one parsed date', () => {
+  it('re-derives endTime as correctedStart + 1h when startTime was corrected and only one parsed date', () => {
     const corrector = new DateCorrector();
     const parsedDates: ParsedDate[] = [
       { phrase: '2pm', isoDateTime: '2026-03-01T14:00:00Z', confidence: 0.9, type: 'absolute' },
     ];
     const oldStart = '2020-01-01T14:00:00Z'; // old - will be corrected
-    const validEnd = '2026-03-01T16:00:00Z'; // future valid end - should NOT be overridden by +1h rule
+    const validEnd = '2026-03-01T16:00:00Z'; // LLM-provided endTime (irrelevant when startTime is corrected)
     const toolCalls = [{
       tool: 'createCalendarEvent',
       params: { summary: 'Meeting', startTime: oldStart, endTime: validEnd }
     }];
     const { toolCalls: corrected } = corrector.correctToolCallDates(toolCalls, parsedDates);
     expect(corrected[0].params.startTime).toBe('2026-03-01T14:00:00Z');
-    // valid future endTime should be preserved
-    expect(corrected[0].params.endTime).toBe('2026-03-01T16:00:00Z');
+    // When startTime is corrected and only 1 parsed date exists, endTime = correctedStart + 1h
+    expect(corrected[0].params.endTime).toBe('2026-03-01T15:00:00.000Z');
   });
 });

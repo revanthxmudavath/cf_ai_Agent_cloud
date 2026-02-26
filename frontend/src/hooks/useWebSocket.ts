@@ -92,6 +92,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
                   setStatus('connected');
                   reconnectAttemptsRef.current = 0;
                   onOpen?.();
+                  // Send timezone once per connection so backend computes the
+                  // correct local "today" when parsing relative date phrases
+                  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                  ws.send(JSON.stringify({
+                      type: 'set_timezone',
+                      payload: { timezone: tz },
+                      timestamp: Date.now(),
+                  }));
+                  console.log('[WebSocket] Timezone sent:', tz);
               };
 
               ws.onmessage = (event) => {
