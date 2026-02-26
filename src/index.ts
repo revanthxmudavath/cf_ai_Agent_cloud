@@ -11,12 +11,18 @@ AuthVariables
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
-app.use('*', cors({
-origin: ['http://localhost:5173'], // Adjust as needed for your frontend origin
-allowHeaders: ['Content-Type', 'Authorization'],
-allowMethods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
-credentials: true,
-}));
+app.use('*', async (c, next) => {
+  const allowedOrigins = [
+    'http://localhost:5173',
+    ...(c.env.ALLOWED_ORIGIN ? [c.env.ALLOWED_ORIGIN] : []),
+  ];
+  return cors({
+    origin: (origin) => allowedOrigins.includes(origin) ? origin : allowedOrigins[0],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    allowMethods: ['GET', 'POST', 'OPTIONS', 'PUT', 'DELETE'],
+    credentials: true,
+  })(c, next);
+});
 
 app.get('/health', (c) => {
 return c.json({ status: 'healthy' });
@@ -81,7 +87,7 @@ return c.json({ tasks: result.results || [] });
 // Get user conversations
 app.get('/api/conversations', async (c) => {
 const auth = c.get('auth');
-const limit = parseInt(c.req.query('limit') || '50');
+const limit = Math.min(parseInt(c.req.query('limit') || '50'), 200);
 
 const result = await c.env.DB.prepare(
     'SELECT * FROM conversations WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?'
@@ -159,7 +165,7 @@ app.post('/api/integrations/google-calendar/connect', async (c) => {
               return c.json({
                   error: errorMessage,
                   details: responseText
-              }, 401);
+              }, 502);
           }
 
           // Parse successful response
@@ -270,7 +276,7 @@ app.post('/api/integrations/google-calendar/disconnect', async (c) => {
             console.log('[Nango] Deleting connection:', user.google_calendar_connection_id);
 
             // Delete connection from Nango using connection ID
-            await fetch(
+            const nangoDeleteResp = await fetch(
                 `https://api.nango.dev/connection/${user.google_calendar_connection_id}`,
                 {
                     method: 'DELETE',
@@ -279,6 +285,9 @@ app.post('/api/integrations/google-calendar/disconnect', async (c) => {
                     },
                 }
             );
+            if (!nangoDeleteResp.ok) {
+                console.warn(`[Nango] ⚠️ Failed to delete Nango connection (status ${nangoDeleteResp.status}), clearing DB record anyway`);
+            }
         }
     } catch (error) {
         console.error('[Nango] Failed to delete connection:', error);
@@ -294,35 +303,104 @@ app.post('/api/integrations/google-calendar/disconnect', async (c) => {
     return c.json({ success: true });
 });
 
+/**
+ * Verify Nango webhook HMAC-SHA256 signature
+ * Nango signature format: "t={timestamp},{hmac}"
+ * HMAC is computed over "{timestamp}:{rawBody}" using NANGO_SECRET_KEY
+ */
+async function verifyNangoWebhookSignature(
+  signature: string | null,
+  rawBody: string,
+  secret: string
+): Promise<boolean> {
+  if (!signature) return false;
+
+  try {
+    // Parse "t=1234567890,abc123def456..."
+    const parts = signature.split(',');
+    if (parts.length < 2) return false;
+
+    const timestampPart = parts[0]; // "t=1234567890"
+    const hmacHex = parts[1];
+
+    if (!timestampPart.startsWith('t=')) return false;
+    const timestamp = timestampPart.slice(2);
+
+    // Reject webhooks older than 5 minutes
+    const webhookAge = Date.now() - parseInt(timestamp) * 1000;
+    if (webhookAge > 5 * 60 * 1000) return false;
+
+    // Compute expected HMAC using Web Crypto API (Workers compatible)
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(secret);
+    const messageData = encoder.encode(`${timestamp}:${rawBody}`);
+
+    const cryptoKey = await crypto.subtle.importKey(
+      'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    );
+
+    const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+    const expectedHmac = Array.from(new Uint8Array(signatureBuffer))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+
+    // Constant-time comparison
+    return expectedHmac === hmacHex;
+  } catch {
+    return false;
+  }
+}
+
 // Receive Nango Connection notification
 app.post('/api/webhooks/nango', async (c) => {
-    try {
-        const event = await c.req.json();
-        console.log('[Nango Webhook] Received event:', JSON.stringify(event, null, 2));
+  try {
+    // Read raw body for signature verification
+    const rawBody = await c.req.text();
 
-        if (event.type === 'auth' && event.operation === 'creation' && event.success) {
-            const userId = event.endUser.endUserId; // This is the auth.userId we passed during connect session
-            const connectionId = event.connectionId;
+    // Verify Nango signature
+    const signature = c.req.header('X-Nango-Signature') ?? null;
+    const isValid = await verifyNangoWebhookSignature(
+      signature,
+      rawBody,
+      c.env.NANGO_SECRET_KEY
+    );
 
-            console.log('[Nango Webhook] Storing connection:', { userId, connectionId });
-
-            // Update user record with connection ID (use 'id' not 'clerk_id')
-            await c.env.DB.prepare(`
-                UPDATE users
-                SET google_calendar_connection_id = ?,
-                    google_calendar_connected = 1,
-                    updated_at = ?
-                WHERE id = ?
-            `).bind(connectionId, Math.floor(Date.now() / 1000), userId).run();
-
-            console.log('[Nango Webhook] ✅ Database updated successfully');
-        }
-
-        return c.json({ success: true });
-    } catch (error) {
-        console.error('[Nango Webhook] Error processing webhook:', error);
-        return c.json({ success: false, error: 'Failed to process webhook' }, 500);
+    if (!isValid) {
+      console.warn('[Nango Webhook] ❌ Invalid signature — rejecting request');
+      return c.json({ error: 'Invalid webhook signature' }, 401);
     }
+
+    const event = JSON.parse(rawBody);
+    console.log('[Nango Webhook] Received event:', JSON.stringify(event, null, 2));
+
+    if (event.type === 'auth' && event.operation === 'creation' && event.success) {
+      // Null-safe extraction
+      const userId = event.endUser?.endUserId;
+      const connectionId = event.connectionId;
+
+      if (!userId || !connectionId) {
+        console.warn('[Nango Webhook] ⚠️ Missing userId or connectionId in payload, skipping');
+        return c.json({ success: true }); // Return 200 to prevent Nango retries
+      }
+
+      console.log('[Nango Webhook] Storing connection:', { userId, connectionId });
+
+      await c.env.DB.prepare(`
+        UPDATE users
+        SET google_calendar_connection_id = ?,
+            google_calendar_connected = 1,
+            updated_at = ?
+        WHERE id = ?
+      `).bind(connectionId, Math.floor(Date.now() / 1000), userId).run();
+
+      console.log('[Nango Webhook] ✅ Database updated successfully');
+    }
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('[Nango Webhook] Error processing webhook:', error);
+    return c.json({ success: false, error: 'Failed to process webhook' }, 500);
+  }
 });
 
 

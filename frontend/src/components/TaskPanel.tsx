@@ -16,6 +16,7 @@ const userId = useAppStore((state) => state.userId);
 const taskFilter = useAppStore((state) => state.taskFilter);
 const setTaskFilter = useAppStore((state) => state.setTaskFilter);
 const updateTask = useAppStore((state) => state.updateTask);
+const removeTask = useAppStore((state) => state.removeTask);
 const isSidebarOpen = useAppStore((state) => state.isSidebarOpen);
 const toggleSidebar = useAppStore((state) => state.toggleSidebar);
 
@@ -72,7 +73,6 @@ const handleToggleComplete = (taskId: string) => {
 
 const handleDelete = (taskId: string) => {
     // Optimistic removal
-    const removeTask = useAppStore.getState().removeTask;
     removeTask(taskId);
 
     // Sync to backend via WebSocket

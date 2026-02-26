@@ -143,7 +143,7 @@ describe('MCP Tools - Task Operations', () => {
       expect(result.error).toBe('Database error');
     });
 
-    it('should validate and convert date string to timestamp with Zod schema', () => {
+    it('should accept valid ISO 8601 dueDate string with Zod schema', () => {
       const result = createTaskTool.parameters.safeParse({
         title: 'Meeting',
         dueDate: '2025-01-01T00:00:00Z',
@@ -151,9 +151,19 @@ describe('MCP Tools - Task Operations', () => {
 
       expect(result.success).toBe(true);
       if (result.success) {
-        expect(result.data.dueDate).toEqual(expect.any(Number));
-        expect(result.data.dueDate).toBeGreaterThan(0);
+        // isoDateTimeSchema validates and returns the string as-is (not converted to number)
+        expect(typeof result.data.dueDate).toBe('string');
+        expect(result.data.dueDate).toBe('2025-01-01T00:00:00Z');
       }
+    });
+
+    it('should reject non-ISO dueDate formats', () => {
+      // Unix timestamp number — should be rejected (schema expects ISO string)
+      const resultNum = createTaskTool.parameters.safeParse({
+        title: 'Meeting',
+        dueDate: 1735689600000,
+      });
+      expect(resultNum.success).toBe(false);
     });
   });
 

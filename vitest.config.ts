@@ -8,8 +8,9 @@ export default defineConfig({
         environment: 'node',
         // Only use Workers pool for integration tests
         include: [
+            'tests/*.test.ts',
             'tests/unit/**/*.test.ts',
-            'tests/integration/**/*.test.ts'
+            'tests/integration/**/*.test.ts',
         ],
         coverage: {
             provider: 'v8',

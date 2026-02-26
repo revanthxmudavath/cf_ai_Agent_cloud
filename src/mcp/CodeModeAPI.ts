@@ -53,7 +53,7 @@ ${docs}
       case 'createTask':
         return `{
     "title": "Buy groceries",
-    "dueDate": ${Date.now() + 86400000},
+    "dueDate": "2026-02-26T09:00:00Z",
     "description": "Milk, eggs, bread",
     "priority": "medium"
   }`;
@@ -90,18 +90,18 @@ ${docs}
 
       case 'createCalendarEvent':
         return `{
-    "summary": "Team meating",
+    "summary": "Team meeting",
     "description": "Discuss project updates",
-    "startTime": 1704283200000,
-    "endTime": 1704286800000      
+    "startTime": "2026-02-26T10:00:00Z",
+    "endTime": "2026-02-26T11:00:00Z"
   }`;
 
       case 'updateCalendarEvent':
         return `{
     "eventId": "event-id-here",
-    "summary" : "Updated meeting title",
-    "startTime": 1704286800000,
-    }`;
+    "summary": "Updated meeting title",
+    "startTime": "2026-02-26T11:00:00Z"
+  }`;
 
       case 'deleteCalendarEvent':
         return `{

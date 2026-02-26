@@ -74,10 +74,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
                   }
               }
 
-              // Build WebSocket URL with token (not userId)
-              const wsUrl = token
-                  ? `${url}?token=${encodeURIComponent(token)}`
-                  : `${url}?userId=${encodeURIComponent(userId)}`; // Fallback for legacy
+              // Build WebSocket URL with token
+              if (!token) {
+                  console.error('[WebSocket] No authentication token available, cannot connect');
+                  setStatus('error');
+                  return;
+              }
+              const wsUrl = `${url}?token=${encodeURIComponent(token)}`;
 
               console.log('[WebSocket] Connecting...');
 
@@ -89,6 +92,15 @@ import { useEffect, useRef, useState, useCallback } from "react";
                   setStatus('connected');
                   reconnectAttemptsRef.current = 0;
                   onOpen?.();
+                  // Send timezone once per connection so backend computes the
+                  // correct local "today" when parsing relative date phrases
+                  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                  ws.send(JSON.stringify({
+                      type: 'set_timezone',
+                      payload: { timezone: tz },
+                      timestamp: Date.now(),
+                  }));
+                  console.log('[WebSocket] Timezone sent:', tz);
               };
 
               ws.onmessage = (event) => {

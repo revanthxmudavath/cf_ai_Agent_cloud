@@ -9,7 +9,7 @@ import {
     UpdateCalendarEventParams,
     DeleteCalendarEventSchema,
     DeleteCalendarEventParams,
-} from '../../types/tools.js';
+} from '../../types/tools';
 
 /**
  * Get user's Google Calendar connection ID from database

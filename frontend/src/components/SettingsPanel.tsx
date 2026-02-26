@@ -109,6 +109,12 @@ export function SettingsPanel() {
             setError(null);
             const token = await getToken();
 
+            if (!token) {
+                console.error('[Settings] Failed to get auth token for disconnect');
+                setIsConnecting(false);
+                return;
+            }
+
             // Use relative URL
             await fetch('/api/integrations/google-calendar/disconnect', {
                 method: 'POST',
