@@ -78,8 +78,8 @@ describe('ISO 8601 Format Validation', () => {
 describe('ISO String to Milliseconds Conversion', () => {
   it('should convert valid ISO strings to milliseconds', () => {
     const testCases = [
-      { iso: '2026-02-20T17:00:00Z', expectedMs: 1740074400000 },
-      { iso: '2026-02-21T09:30:00Z', expectedMs: 1740133800000 },
+      { iso: '2026-02-20T17:00:00Z', expectedMs: 1771606800000 },
+      { iso: '2026-02-21T09:30:00Z', expectedMs: 1771666200000 },
     ];
 
     testCases.forEach(({ iso, expectedMs }) => {
@@ -273,11 +273,11 @@ describe('Full Integration: LLM → Schema → Conversion → DB → Workflow', 
 
     // 5. Convert to milliseconds for DB
     const dueDateMs = date.getTime();
-    expect(dueDateMs).toBe(1740153600000);
+    expect(dueDateMs).toBe(1771693200000);
 
     // 6. Calculate workflow reminder
     const reminderTime = dueDateMs - (24 * 60 * 60 * 1000);
-    expect(reminderTime).toBe(1740067200000);
+    expect(reminderTime).toBe(1771606800000);
 
     // 7. Verify reminder is schedulable (in future)
     // For this test, we'll use a fixed "now" value
