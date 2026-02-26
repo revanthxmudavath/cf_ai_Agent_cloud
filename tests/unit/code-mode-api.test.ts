@@ -41,7 +41,7 @@ describe('ToolDocumentation - generateToolDocs examples', () => {
   it('updateCalendarEvent uses ISO 8601 startTime and has no trailing comma', () => {
     const docs = generateToolDocs();
     // No raw Unix timestamps for startTime in update example
-    expect(docs).not.toMatch(/"startTime":\s*1704\d+/);
+    expect(docs).not.toMatch(/"startTime":\s*\d{13}/);
     // Must not have trailing comma pattern (comma followed by whitespace then })
     expect(docs).not.toMatch(/,\s*\n\s*\}/);
     // Must contain a valid ISO 8601 startTime somewhere in the docs

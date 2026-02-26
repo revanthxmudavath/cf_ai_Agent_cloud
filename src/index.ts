@@ -335,17 +335,15 @@ async function verifyNangoWebhookSignature(
     const keyData = encoder.encode(secret);
     const messageData = encoder.encode(`${timestamp}:${rawBody}`);
 
+    const hmacBytes = new Uint8Array(
+      (hmacHex.match(/.{2}/g) ?? []).map(b => parseInt(b, 16))
+    );
     const cryptoKey = await crypto.subtle.importKey(
-      'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
     );
 
-    const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
-    const expectedHmac = Array.from(new Uint8Array(signatureBuffer))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('');
-
-    // Constant-time comparison
-    return expectedHmac === hmacHex;
+    // Timing-safe comparison via Web Crypto API verify
+    return await crypto.subtle.verify('HMAC', cryptoKey, hmacBytes, messageData);
   } catch {
     return false;
   }
