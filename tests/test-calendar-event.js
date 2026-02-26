@@ -5,8 +5,9 @@
 const WebSocket = require('ws');
 const crypto = require('crypto');
 
-const userId = crypto.randomUUID();
-const ws = new WebSocket(`ws://localhost:8787/ws?userId=${userId}`);
+const token = process.env.TEST_TOKEN;
+if (!token) { console.error('❌ TEST_TOKEN env variable required'); process.exit(1); }
+const ws = new WebSocket(`ws://localhost:8787/ws?token=${encodeURIComponent(token)}`);
 
 console.log('🧪 Testing Calendar Event Creation\n');
 console.log('=' .repeat(60));

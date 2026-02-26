@@ -14,7 +14,8 @@
 const WebSocket = require('../node_modules/.pnpm/ws@7.5.10_bufferutil@4.0.9_utf-8-validate@5.0.10/node_modules/ws');
 
 const WORKER_URL = 'ws://localhost:8787/ws';
-const userId = `test-user-${Date.now()}`;
+const token = process.env.TEST_TOKEN;
+if (!token) { console.error('❌ TEST_TOKEN env variable required'); process.exit(1); }
 
 let testsPassed = 0;
 let testsFailed = 0;
@@ -45,9 +46,7 @@ async function sleep(ms) {
 
 async function runTests() {
   log('\n=== Pre-Compilation Tool Calling Integration Tests ===\n', 'info');
-  log(`Test User ID: ${userId}\n`, 'info');
-
-  const ws = new WebSocket(`${WORKER_URL}?userId=${userId}`);
+  const ws = new WebSocket(`${WORKER_URL}?token=${encodeURIComponent(token)}`);
 
   let pendingConfirmation = null;
   let lastToolResult = null;

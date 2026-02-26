@@ -807,7 +807,7 @@ ${DEFAULT_SYSTEM_PROMPT}`;
       console.error('[RAG] Error generating RAG response, falling back to standard:', error);
 
       // Fallback to non-RAG on error
-      return await this.generateLLMResponse(userId, userMessage, conversationHistory);
+      return await this.generateLLMResponse(userId, userMessage, conversationHistory, userTimezone);
     }
   }
   // ==================== WebSocket Message Handlers ====================

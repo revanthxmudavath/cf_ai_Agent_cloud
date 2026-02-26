@@ -3,14 +3,14 @@ const WebSocket = require('../node_modules/.pnpm/ws@7.5.10_bufferutil@4.0.9_utf-
 
 // Configuration
 const WS_URL = 'ws://localhost:8787';
-const userId = 'test-user-' + Date.now(); // Unique user for this test
+const token = process.env.TEST_TOKEN;
+if (!token) { console.error('❌ TEST_TOKEN env variable required'); process.exit(1); }
 
 console.log('🧪 Starting WebSocket Tests');
-console.log('📋 User ID:', userId);
-console.log('🔗 Connecting to:', `${WS_URL}/ws?userId=${userId}`);
+console.log('🔗 Connecting to:', `${WS_URL}/ws?token=...`);
 console.log('─'.repeat(60));
 
-const ws = new WebSocket(`${WS_URL}/ws?userId=${userId}`);
+const ws = new WebSocket(`${WS_URL}/ws?token=${encodeURIComponent(token)}`);
 
 let testStep = 0;
 let taskId = null;

@@ -1,7 +1,8 @@
 const WebSocket = require('../node_modules/.pnpm/ws@7.5.10_bufferutil@4.0.9_utf-8-validate@5.0.10/node_modules/ws');
 
-  const userId = 'llm-test-user-' + Date.now();
-  const ws = new WebSocket(`ws://localhost:8787/ws?userId=${userId}`);
+  const token = process.env.TEST_TOKEN;
+  if (!token) { console.error('❌ TEST_TOKEN env variable required'); process.exit(1); }
+  const ws = new WebSocket(`ws://localhost:8787/ws?token=${encodeURIComponent(token)}`);
 
   let messageCount = 0;
   const testMessages = [
