@@ -138,7 +138,7 @@ export interface WSMessage {
   export type TaskFilter = 'all' | 'pending' | 'completed';
 
 
-  export const PRIORITY_COLORS: Record<Task['priority'] & string, string> = {
+  export const PRIORITY_COLORS: Record<string, string> = {
     low: 'text-blue-600 bg-blue-50',
     medium: 'text-yellow-600 bg-yellow-50',
     high: 'text-red-600 bg-red-50',

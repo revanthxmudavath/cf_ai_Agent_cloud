@@ -53,12 +53,16 @@ export class DateCorrector {
         }
       }
 
-      // Handle calendar events
+      // Handle calendar events — use first parsed date for startTime, second for endTime
       if (toolCall.tool === 'createCalendarEvent' || toolCall.tool === 'updateCalendarEvent') {
+        // Use parsedDates[0] for startTime, parsedDates[1] for endTime (if available)
+        const startDates = parsedDates.length > 0 ? [parsedDates[0]] : [];
+        const endDates = parsedDates.length > 1 ? [parsedDates[1]] : [];
+
         if (correctedParams.startTime) {
           const correctedStart = this.correctDate(
             correctedParams.startTime,
-            parsedDates,
+            startDates,
             now,
             oneWeekAgo
           );
@@ -69,19 +73,31 @@ export class DateCorrector {
               field: 'startTime',
               oldValue: correctedParams.startTime,
               newValue: correctedStart,
-              reason: 'Start time was in the past, corrected using parsed dates'
+              reason: 'Start time corrected using first parsed date'
             });
             correctedParams.startTime = correctedStart;
           }
         }
 
         if (correctedParams.endTime) {
-          const correctedEnd = this.correctDate(
-            correctedParams.endTime,
-            parsedDates,
-            now,
-            oneWeekAgo
-          );
+          let correctedEnd: string | null = null;
+
+          if (endDates.length > 0) {
+            // Use second parsed date for endTime
+            correctedEnd = this.correctDate(correctedParams.endTime, endDates, now, oneWeekAgo);
+          } else if (correctedParams.startTime) {
+            // Only one parsed date: derive endTime as startTime + 1 hour
+            const startMs = new Date(correctedParams.startTime).getTime();
+            if (!isNaN(startMs)) {
+              const derivedEnd = new Date(startMs + 60 * 60 * 1000).toISOString();
+              const endMs = new Date(correctedParams.endTime).getTime();
+              // Only override if endTime is invalid or in the past
+              if (isNaN(endMs) || endMs < now - (7 * 24 * 60 * 60 * 1000)) {
+                correctedEnd = derivedEnd;
+              }
+            }
+          }
+
           if (correctedEnd && correctedEnd !== correctedParams.endTime) {
             report.corrected = true;
             report.changes.push({
@@ -89,7 +105,9 @@ export class DateCorrector {
               field: 'endTime',
               oldValue: correctedParams.endTime,
               newValue: correctedEnd,
-              reason: 'End time was in the past, corrected using parsed dates'
+              reason: endDates.length > 0
+                ? 'End time corrected using second parsed date'
+                : 'End time derived as 1 hour after corrected start time'
             });
             correctedParams.endTime = correctedEnd;
           }

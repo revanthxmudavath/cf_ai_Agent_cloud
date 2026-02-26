@@ -152,3 +152,58 @@ describe('DateCorrector', () => {
     });
   });
 });
+
+describe('DateCorrector - calendar event start/end date separation', () => {
+  it('uses parsedDates[0] for startTime and parsedDates[1] for endTime when two dates exist', () => {
+    const corrector = new DateCorrector();
+    const parsedDates: ParsedDate[] = [
+      { phrase: '2pm', isoDateTime: '2026-03-01T14:00:00Z', confidence: 0.9, type: 'absolute' },
+      { phrase: '3pm', isoDateTime: '2026-03-01T15:00:00Z', confidence: 0.9, type: 'absolute' },
+    ];
+    const oldDate = '2020-01-01T14:00:00Z'; // old date that will be corrected
+    const toolCalls = [{
+      tool: 'createCalendarEvent',
+      params: { summary: 'Meeting', startTime: oldDate, endTime: oldDate }
+    }];
+    const { toolCalls: corrected } = corrector.correctToolCallDates(toolCalls, parsedDates);
+    expect(corrected[0].params.startTime).toBe('2026-03-01T14:00:00Z');
+    expect(corrected[0].params.endTime).toBe('2026-03-01T15:00:00Z');
+    // Must be different - not zero-duration
+    expect(corrected[0].params.startTime).not.toBe(corrected[0].params.endTime);
+  });
+
+  it('derives endTime as 1 hour after startTime when only one parsed date exists', () => {
+    const corrector = new DateCorrector();
+    const parsedDates: ParsedDate[] = [
+      { phrase: '2pm', isoDateTime: '2026-03-01T14:00:00Z', confidence: 0.9, type: 'absolute' },
+    ];
+    const oldDate = '2020-01-01T14:00:00Z';
+    const toolCalls = [{
+      tool: 'createCalendarEvent',
+      params: { summary: 'Meeting', startTime: oldDate, endTime: oldDate }
+    }];
+    const { toolCalls: corrected } = corrector.correctToolCallDates(toolCalls, parsedDates);
+    expect(corrected[0].params.startTime).toBe('2026-03-01T14:00:00Z');
+    // endTime should be 1 hour after startTime = 15:00
+    const endTime = new Date(corrected[0].params.endTime).getTime();
+    const startTime = new Date(corrected[0].params.startTime).getTime();
+    expect(endTime - startTime).toBe(60 * 60 * 1000); // exactly 1 hour
+  });
+
+  it('does not modify valid future endTime when only one parsed date', () => {
+    const corrector = new DateCorrector();
+    const parsedDates: ParsedDate[] = [
+      { phrase: '2pm', isoDateTime: '2026-03-01T14:00:00Z', confidence: 0.9, type: 'absolute' },
+    ];
+    const oldStart = '2020-01-01T14:00:00Z'; // old - will be corrected
+    const validEnd = '2026-03-01T16:00:00Z'; // future valid end - should NOT be overridden by +1h rule
+    const toolCalls = [{
+      tool: 'createCalendarEvent',
+      params: { summary: 'Meeting', startTime: oldStart, endTime: validEnd }
+    }];
+    const { toolCalls: corrected } = corrector.correctToolCallDates(toolCalls, parsedDates);
+    expect(corrected[0].params.startTime).toBe('2026-03-01T14:00:00Z');
+    // valid future endTime should be preserved
+    expect(corrected[0].params.endTime).toBe('2026-03-01T16:00:00Z');
+  });
+});

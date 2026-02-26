@@ -10,7 +10,7 @@ onDelete?: (taskId: string) => void;
 }
 
 export function TaskItem({ task, onToggleComplete, onDelete }: TaskItemProps) {
-const priorityColor = PRIORITY_COLORS[task.priority || 'low'];
+const priorityColor = PRIORITY_COLORS[task.priority ?? 'medium'] ?? '';
 
 const handleToggle = () => {
     onToggleComplete?.(task.id);
