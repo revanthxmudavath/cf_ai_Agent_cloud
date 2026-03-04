@@ -904,6 +904,10 @@ ${DEFAULT_SYSTEM_PROMPT}`;
           timestamp: Date.now(),
         }));
 
+        if (!executionResult.success && executionResult.error?.includes('refresh limit')) {
+          ws.send(JSON.stringify({ type: 'calendar_auth_expired', payload: {}, timestamp: Date.now() }));
+        }
+
     const formattedResult = this.formatToolResultAsSystemMessage(toolCall.tool, executionResult);
     toolResultMessage.push(formattedResult);
 

@@ -56,7 +56,8 @@ export interface WSMessage {
     | 'complete_task'
     | 'update_task'
     | 'delete_task'
-    | 'ping';
+    | 'ping'
+    | 'calendar_auth_expired';
 
 
   export interface ChatPayload {
