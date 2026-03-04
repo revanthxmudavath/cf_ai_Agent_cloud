@@ -43,6 +43,12 @@ interface AppState {
 
     isSidebarOpen: boolean;
     toggleSidebar: () => void;
+
+    isSettingsOpen: boolean;
+    setIsSettingsOpen: (open: boolean) => void;
+
+    calendarAuthExpired: boolean;
+    setCalendarAuthExpired: (expired: boolean) => void;
 }
 
 // zustand store 
@@ -118,4 +124,10 @@ export const useAppStore = create<AppState>(( set, get) => ({
 
     isSidebarOpen: true,
     toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
+
+    isSettingsOpen: false,
+    setIsSettingsOpen: (isSettingsOpen) => set({ isSettingsOpen }),
+
+    calendarAuthExpired: false,
+    setCalendarAuthExpired: (calendarAuthExpired) => set({ calendarAuthExpired }),
   }));

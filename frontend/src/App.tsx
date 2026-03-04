@@ -22,6 +22,7 @@ const userId = useAppStore((state) => state.userId);
 const addMessage = useAppStore((state) => state.addMessage);
 const setIsTyping = useAppStore((state) => state.setIsTyping);
 const setPendingConfirmation = useAppStore((state) => state.setPendingConfirmation);
+const setCalendarAuthExpired = useAppStore((state) => state.setCalendarAuthExpired);
 
 const { fetchTasks } = useTasks(userId);
 
@@ -100,6 +101,10 @@ useEffect(() => {
         }
         break;
 
+      case 'calendar_auth_expired':
+        setCalendarAuthExpired(true);
+        break;
+
       case 'error':
         const errorMessage: Message = {
           id: crypto.randomUUID(),
@@ -114,7 +119,7 @@ useEffect(() => {
       default:
         console.warn('[App] Unknown message type:', wsMessage.type);
     }
-  }, [addMessage, setIsTyping, setPendingConfirmation, fetchTasks]);
+  }, [addMessage, setIsTyping, setPendingConfirmation, fetchTasks, setCalendarAuthExpired]);
 
   // WebSocket with token-based auth
   const { status, sendMessage, isConnected } = useWebSocket(userId, {

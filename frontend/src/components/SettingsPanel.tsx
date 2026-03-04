@@ -9,8 +9,9 @@ export function SettingsPanel() {
     const { signOut } = useClerk();
     const userProfile = useAppStore((state) => state.userProfile);
     const setUserProfile = useAppStore((state) => state.setUserProfile);
+    const isOpen = useAppStore((state) => state.isSettingsOpen);
+    const setIsOpen = useAppStore((state) => state.setIsSettingsOpen);
     const [isConnecting, setIsConnecting] = useState(false);
-    const [isOpen, setIsOpen] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const isCalendarConnected = userProfile?.google_calendar_connected;
